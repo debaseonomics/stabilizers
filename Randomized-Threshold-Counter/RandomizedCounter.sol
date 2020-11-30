@@ -42,6 +42,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./APIConsumer.sol";
 
 contract LPTokenWrapper {
     using SafeMath for uint256;
@@ -80,23 +81,25 @@ contract LPTokenWrapper {
 contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     using Address for address;
 
-    event LogCountThreshold(uint256 countThreshold_);
-    event LogBeforePeriodFinish(bool beforePeriodFinish_);
-    event LogCountInSequence(bool countInSequence_);
-    event LogRewardAmount(uint256 rewardAmount_);
-    event LogRevokeReward(bool revokeReward_);
-    event LogRevokeRewardDuration(uint256 revokeRewardDuration_);
+    event LogSetCountThreshold(uint256 countThreshold_);
+    event LogSetBeforePeriodFinish(bool beforePeriodFinish_);
+    event LogSetCountInSequence(bool countInSequence_);
+    event LogSetRewardAmount(uint256 rewardAmount_);
+    event LogSetRevokeReward(bool revokeReward_);
+    event LogSetRevokeRewardDuration(uint256 revokeRewardDuration_);
+    event LogSetMeanAndSigmaRequest(string meanAndSigmaRequest);
+    event LogSetDuration(uint256 duration);
+    event LogSetPoolEnabled(bool poolEnabled);
 
     event RewardAdded(uint256 reward);
     event Staked(address indexed user, uint256 amount);
     event Withdrawn(address indexed user, uint256 amount);
     event RewardPaid(address indexed user, uint256 reward);
     event ManualPoolStarted(uint256 startedAt);
-    event LogSetDuration(uint256 duration);
-    event LogSetPoolEnabled(bool poolEnabled);
 
-    string public poolName;
     IERC20 public rewardToken;
+    APIConsumer public apiConsumer;
+    string public poolName;
     address public policy;
     uint256 public duration;
     bool public poolEnabled;
@@ -109,6 +112,9 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     uint256 public rewardPerTokenStored;
     uint256 public rewardDistributed;
 
+    // Mean & Sigma request for normal distribution post request
+    string public meanAndSigmaRequest;
+
     // Revokes reward until by the duration amount
     uint256 public revokeRewardDuration;
 
@@ -117,9 +123,6 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
 
     // The count of s hitting their target
     uint256 public count;
-
-    // The threshold count on which to send rewards to the stabilizer pool
-    uint256 public countThreshold;
 
     // Flag to enable or disable   sequence checker
     bool public countInSequence;
@@ -147,7 +150,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
 
     function setRewardAmount(uint256 rewardAmount_) external onlyOwner {
         rewardAmount = rewardAmount_;
-        emit LogRewardAmount(rewardAmount);
+        emit LogSetRewardAmount(rewardAmount);
     }
 
     /**
@@ -156,12 +159,12 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     function setCountInSequence(bool countInSequence_) external onlyOwner {
         countInSequence = countInSequence_;
         count = 0;
-        emit LogCountInSequence(!countInSequence);
+        emit LogSetCountInSequence(!countInSequence);
     }
 
     function setRevokeReward(bool revokeReward_) external onlyOwner {
         revokeReward = revokeReward_;
-        emit LogRevokeReward(revokeReward);
+        emit LogSetRevokeReward(revokeReward);
     }
 
     function setRevokeRewardDuration(uint256 revokeRewardDuration_)
@@ -176,17 +179,6 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     }
 
     /**
-     * @notice Function to set the count threshold
-     * @param countThreshold_ The new threshold
-     */
-    function setCountThreshold(uint256 countThreshold_) external onlyOwner {
-        require(countThreshold_ >= 1);
-        countThreshold = countThreshold_;
-        count = 0;
-        emit LogCountThreshold(countThreshold);
-    }
-
-    /**
      * @notice Function to allow reward distribution before previous rewards have been distributed
      * @param beforePeriodFinish_ Flag to toggle distribution
      */
@@ -195,7 +187,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
         onlyOwner
     {
         beforePeriodFinish = beforePeriodFinish_;
-        emit LogBeforePeriodFinish(beforePeriodFinish);
+        emit LogSetBeforePeriodFinish(beforePeriodFinish);
     }
 
     /**
@@ -218,24 +210,33 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
+    function setMeanAndSigmaRequestString(string memory meanAndSigmaRequest_)
+        external
+        onlyOwner
+    {
+        meanAndSigmaRequest = meanAndSigmaRequest_;
+        emit LogSetMeanAndSigmaRequest(meanAndSigmaRequest);
+    }
+
     function initialize(
         string memory poolName_,
         address rewardToken_,
         address pairToken_,
         address policy_,
+        address apiConsumerAddress_,
         uint256 rewardAmount_,
         uint256 duration_
     ) public initializer {
         poolName = poolName_;
         setStakeToken(pairToken_);
         rewardToken = IERC20(rewardToken_);
+        apiConsumer = APIConsumer(apiConsumerAddress_);
         policy = policy_;
         duration = duration_;
         poolEnabled = false;
 
         rewardAmount = rewardAmount_;
         count = 0;
-        countThreshold = 20;
         countInSequence = true;
         beforePeriodFinish = false;
     }
@@ -256,10 +257,12 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
             "Only debase policy contract can call this"
         );
 
+        apiConsumer.requestRandomNumber(meanAndSigmaRequest);
+
         if (supplyDelta_ > 0) {
             count = count.add(1);
 
-            if (count >= countThreshold) {
+            if (count >= apiConsumer.result()) {
                 count = 0;
                 if (
                     debasePolicyBalance >= rewardAmount &&
