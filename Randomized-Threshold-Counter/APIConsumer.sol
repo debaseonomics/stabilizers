@@ -2,39 +2,55 @@
 pragma solidity ^0.6.0;
 
 import "@chainlink/contracts/src/v0.6/ChainlinkClient.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract APIConsumer is ChainlinkClient {
+contract APIConsumer is Ownable, ChainlinkClient {
+    event LogSetOracle(address oracle_);
+    event LogSetJob(bytes32 jobId_);
+    event LogSetFee(uint256 fee_);
+    event LogSetDataRequester(address dataRequester_);
+
     uint256 public result;
-    address public counter;
+    address public dataRequester;
 
     address private oracle;
     bytes32 private jobId;
     uint256 private fee;
 
-    constructor(address counter_) public {
+    constructor(
+        address oracle_,
+        bytes32 jobId_,
+        uint256 fee_,
+        address dataRequester_
+    ) public {
         setPublicChainlinkToken();
-        oracle = 0xAA1DC356dc4B18f30C347798FD5379F3D77ABC5b;
-        jobId = "02a344a308324a3c98a8c157150925d8";
-        fee = 0.1 * 10**18; // 0.1 LINK
-        counter = counter_;
+        oracle = oracle_;
+        jobId = jobId_;
+        fee = fee_ * 10**18; // 0.1 LINK
+        dataRequester = dataRequester_;
     }
 
-    function requestRandomNumber(string memory requestStr)
-        public
-        returns (bytes32 requestId)
-    {
-        require(msg.sender == counter, "Only counter can call for new data");
+    function setDataRequester(address dataRequester_) external onlyOwner {
+        dataRequester = dataRequester_;
+        emit LogSetDataRequester(dataRequester);
+    }
+
+    function requestRandomNumber(
+        string memory requestPath,
+        string memory requestParms
+    ) public returns (bytes32 requestId) {
+        require(
+            msg.sender == dataRequester,
+            "Only counter can call for new data"
+        );
         Chainlink.Request memory request = buildChainlinkRequest(
             jobId,
             address(this),
             this.fulfill.selector
         );
 
-        request.add(
-            "post",
-            "https://debaseonomics.io/.netlify/functions/randomNumber"
-        );
-        request.add("queryParams", requestStr);
+        request.add("post", requestPath);
+        request.add("queryParams", requestParms);
 
         return sendChainlinkRequestTo(oracle, request, fee);
     }

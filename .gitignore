@@ -6,6 +6,10 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+artifacts
+cache
+typechain
+buidler.config.ts
 hardhat.config.ts
 
 # Diagnostic reports (https://nodejs.org/api/report.html)

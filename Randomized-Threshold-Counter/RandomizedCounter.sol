@@ -86,16 +86,25 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     event LogSetCountInSequence(bool countInSequence_);
     event LogSetRewardAmount(uint256 rewardAmount_);
     event LogSetRevokeReward(bool revokeReward_);
-    event LogSetRevokeRewardDuration(uint256 revokeRewardDuration_);
-    event LogSetMeanAndSigmaRequest(string meanAndSigmaRequest);
-    event LogSetDuration(uint256 duration);
-    event LogSetPoolEnabled(bool poolEnabled);
+    event LogSetRevokeRewardDuration(uint256 revokeRewardDuration);
+    event LogSetApiConsumer(address apiConsumer_);
 
-    event RewardAdded(uint256 reward);
-    event Staked(address indexed user, uint256 amount);
-    event Withdrawn(address indexed user, uint256 amount);
-    event RewardPaid(address indexed user, uint256 reward);
-    event ManualPoolStarted(uint256 startedAt);
+    event LogSetRequestPath(string requestPath_);
+    event LogSetRequestParams(string requestParams_);
+    event LogSetDuration(uint256 duration_);
+    event LogSetPoolEnabled(bool poolEnabled_);
+    event LogCountThresholdHit(
+        uint256 rewardAmount_,
+        uint256 count_,
+        uint256 randomThreshold
+    );
+
+    event LogRewardAdded(uint256 reward);
+    event LogRewardRevoked(uint256 durationRevoked, uint256 amountRevoked);
+    event LogStaked(address indexed user, uint256 amount);
+    event LogWithdrawn(address indexed user, uint256 amount);
+    event LogRewardPaid(address indexed user, uint256 reward);
+    event LogManualPoolStarted(uint256 startedAt);
 
     IERC20 public rewardToken;
     APIConsumer public apiConsumer;
@@ -113,7 +122,9 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     uint256 public rewardDistributed;
 
     // Mean & Sigma request for normal distribution post request
-    string public meanAndSigmaRequest;
+    string public requestPath;
+
+    string public requestParams;
 
     // Revokes reward until by the duration amount
     uint256 public revokeRewardDuration;
@@ -176,6 +187,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
             "Revoke duration should be less than total duration"
         );
         revokeRewardDuration = revokeRewardDuration_;
+        emit LogSetRevokeRewardDuration(revokeRewardDuration);
     }
 
     /**
@@ -210,12 +222,23 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
-    function setMeanAndSigmaRequestString(string memory meanAndSigmaRequest_)
+    function setRequestPath(string calldata requestPath_) external onlyOwner {
+        requestPath = requestPath_;
+        emit LogSetRequestPath(requestPath);
+    }
+
+    function setRequestParams(string calldata requestParams_)
         external
         onlyOwner
     {
-        meanAndSigmaRequest = meanAndSigmaRequest_;
-        emit LogSetMeanAndSigmaRequest(meanAndSigmaRequest);
+        requestParams = requestParams_;
+        emit LogSetRequestParams(requestParams);
+    }
+
+    function setApiConsumer(address apiConsumer_) external onlyOwner {
+        require(apiConsumer_ != address(0), "Consumer address can't be zero");
+        apiConsumer = APIConsumer(apiConsumer_);
+        emit LogSetApiConsumer(address(apiConsumer));
     }
 
     function initialize(
@@ -223,14 +246,14 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
         address rewardToken_,
         address pairToken_,
         address policy_,
-        address apiConsumerAddress_,
+        address apiConsumer_,
         uint256 rewardAmount_,
         uint256 duration_
     ) public initializer {
         poolName = poolName_;
         setStakeToken(pairToken_);
         rewardToken = IERC20(rewardToken_);
-        apiConsumer = APIConsumer(apiConsumerAddress_);
+        apiConsumer = APIConsumer(apiConsumer_);
         policy = policy_;
         duration = duration_;
         poolEnabled = false;
@@ -257,7 +280,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
             "Only debase policy contract can call this"
         );
 
-        apiConsumer.requestRandomNumber(meanAndSigmaRequest);
+        apiConsumer.requestRandomNumber(requestPath, requestParams);
 
         if (supplyDelta_ > 0) {
             count = count.add(1);
@@ -266,9 +289,16 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
                 count = 0;
                 if (
                     debasePolicyBalance >= rewardAmount &&
-                    (beforePeriodFinish || now >= periodFinish)
+                    (beforePeriodFinish || block.timestamp >= periodFinish)
                 ) {
+                    totalRewards = totalRewards.add(rewardAmount);
                     notifyRewardAmount(rewardAmount);
+
+                    emit LogCountThresholdHit(
+                        rewardAmount,
+                        count,
+                        apiConsumer.result()
+                    );
                     return rewardAmount;
                 }
             }
@@ -279,10 +309,10 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
             uint256 timeRemaining = block.timestamp.sub(periodFinish);
             if (timeRemaining >= revokeRewardDuration) {
                 periodFinish = periodFinish.sub(revokeRewardDuration);
-                rewardToken.safeTransfer(
-                    policy,
-                    rewardRate.mul(revokeRewardDuration)
-                );
+                uint256 rewardToRevoke = rewardRate.mul(revokeRewardDuration);
+                totalRewards = totalRewards.sub(rewardToRevoke);
+                rewardToken.safeTransfer(policy, rewardToRevoke);
+                emit LogRewardRevoked(revokeRewardDuration, rewardToRevoke);
             }
         }
         return 0;
@@ -327,7 +357,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
         );
         require(amount > 0, "Cannot stake 0");
         super.stake(amount);
-        emit Staked(msg.sender, amount);
+        emit LogStaked(msg.sender, amount);
     }
 
     function withdraw(uint256 amount)
@@ -338,7 +368,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     {
         require(amount > 0, "Cannot withdraw 0");
         super.withdraw(amount);
-        emit Withdrawn(msg.sender, amount);
+        emit LogWithdrawn(msg.sender, amount);
     }
 
     function exit() external {
@@ -351,7 +381,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
         if (reward > 0) {
             rewards[msg.sender] = 0;
             rewardToken.safeTransfer(msg.sender, reward);
-            emit RewardPaid(msg.sender, reward);
+            emit LogRewardPaid(msg.sender, reward);
             rewardDistributed = rewardDistributed.add(reward);
         }
     }
@@ -365,6 +395,6 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
         rewardRate = reward.add(leftover).div(duration);
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp.add(duration);
-        emit RewardAdded(reward);
+        emit LogRewardAdded(reward);
     }
 }
