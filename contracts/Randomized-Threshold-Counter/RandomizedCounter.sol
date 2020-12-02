@@ -42,6 +42,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./RandomNumberConsumer.sol";
 
 contract LPTokenWrapper {
     using SafeMath for uint256;
@@ -86,6 +87,11 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     event LogSetRewardAmount(uint256 rewardAmount_);
     event LogSetRevokeReward(bool revokeReward_);
     event LogSetRevokeRewardDuration(uint256 revokeRewardDuration);
+    event LogSetNormalDistribution(
+        uint256 noramlDistributionMean_,
+        uint256 normalDistributionDeviation_,
+        uint256[100] normalDistribution_
+    );
 
     event LogSetDuration(uint256 duration_);
     event LogSetPoolEnabled(bool poolEnabled_);
@@ -93,6 +99,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256 rewardAmount_,
         uint256 count_,
         uint256 randomThreshold
+    );
+    event LogSetRandomNumberConsumer(
+        RandomNumberConsumer randomNumberConsumer_
     );
 
     event LogRewardAdded(uint256 reward);
@@ -130,6 +139,12 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     // Flag to send reward before stabilizer pool period time finished
     bool public beforePeriodFinish;
+
+    RandomNumberConsumer public randomNumberConsumer;
+
+    uint256[100] normalDistribution;
+    uint256 noramlDistributionMean;
+    uint256 normalDistributionDeviation;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
@@ -212,17 +227,42 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
+    function setRandomNumberConsumer(RandomNumberConsumer randomNumberConsumer_)
+        external
+        onlyOwner
+    {
+        randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
+        emit LogSetRandomNumberConsumer(randomNumberConsumer);
+    }
+
+    function setNormalDistribution(
+        uint256 noramlDistributionMean_,
+        uint256 normalDistributionDeviation_,
+        uint256[100] memory normalDistribution_
+    ) external onlyOwner {
+        noramlDistributionMean = noramlDistributionMean_;
+        normalDistributionDeviation = normalDistributionDeviation_;
+        normalDistribution = normalDistribution_;
+        emit LogSetNormalDistribution(
+            noramlDistributionMean,
+            normalDistributionDeviation,
+            normalDistribution
+        );
+    }
+
     function initialize(
         string memory poolName_,
         address rewardToken_,
         address pairToken_,
         address policy_,
+        address randomNumberConsumer_,
         uint256 rewardAmount_,
         uint256 duration_
     ) public initializer {
         poolName = poolName_;
         setStakeToken(pairToken_);
         rewardToken = IERC20(rewardToken_);
+        randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
         policy = policy_;
         duration = duration_;
         poolEnabled = false;
@@ -249,11 +289,14 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             "Only debase policy contract can call this"
         );
 
-
         if (supplyDelta_ > 0) {
+            randomNumberConsumer.getRandomNumber(block.timestamp);
+            uint256 randomThreshold = randomNumberConsumer.randomResult().mod(
+                100
+            );
             count = count.add(1);
 
-            if (count >= 1) {
+            if (count >= randomThreshold) {
                 count = 0;
                 if (
                     debasePolicyBalance >= rewardAmount &&
@@ -265,7 +308,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
                     emit LogCountThresholdHit(
                         rewardAmount,
                         count,
-                        1
+                        randomThreshold
                     );
                     return rewardAmount;
                 }
