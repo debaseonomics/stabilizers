@@ -92,6 +92,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256 normalDistributionDeviation_,
         uint256[100] normalDistribution_
     );
+    event LogCountThreshold(uint256 count_, uint256 index, uint256 threshold_);
 
     event LogSetDuration(uint256 duration_);
     event LogSetPoolEnabled(bool poolEnabled_);
@@ -142,9 +143,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     RandomNumberConsumer public randomNumberConsumer;
 
-    uint256[100] normalDistribution;
-    uint256 noramlDistributionMean;
-    uint256 normalDistributionDeviation;
+    uint256 public noramlDistributionMean;
+    uint256 public normalDistributionDeviation;
+    uint256[100] public normalDistribution;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
@@ -238,7 +239,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     function setNormalDistribution(
         uint256 noramlDistributionMean_,
         uint256 normalDistributionDeviation_,
-        uint256[100] memory normalDistribution_
+        uint256[100] calldata normalDistribution_
     ) external onlyOwner {
         noramlDistributionMean = noramlDistributionMean_;
         normalDistributionDeviation = normalDistributionDeviation_;
@@ -291,13 +292,14 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
         if (supplyDelta_ > 0) {
             randomNumberConsumer.getRandomNumber(block.timestamp);
-            uint256 randomThreshold = randomNumberConsumer.randomResult().mod(
-                100
-            );
+            uint256 randomThreshold = normalDistribution[randomNumberConsumer
+                .randomResult()
+                .mod(100)];
             count = count.add(1);
 
-            if (count >= randomThreshold) {
+            if (count >= 8) {
                 count = 0;
+
                 if (
                     debasePolicyBalance >= rewardAmount &&
                     (beforePeriodFinish || block.timestamp >= periodFinish)
@@ -313,17 +315,20 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
                     return rewardAmount;
                 }
             }
-        } else if (countInSequence && count != 0) {
+        } else if (countInSequence) {
             count = 0;
-        }
-        if (revokeReward && block.timestamp < periodFinish) {
-            uint256 timeRemaining = block.timestamp.sub(periodFinish);
-            if (timeRemaining >= revokeRewardDuration) {
-                periodFinish = periodFinish.sub(revokeRewardDuration);
-                uint256 rewardToRevoke = rewardRate.mul(revokeRewardDuration);
-                totalRewards = totalRewards.sub(rewardToRevoke);
-                rewardToken.safeTransfer(policy, rewardToRevoke);
-                emit LogRewardRevoked(revokeRewardDuration, rewardToRevoke);
+            if (revokeReward && block.timestamp < periodFinish) {
+                uint256 timeRemaining = periodFinish.sub(block.timestamp);
+                if (timeRemaining >= revokeRewardDuration) {
+                    periodFinish = periodFinish.sub(revokeRewardDuration);
+                    uint256 rewardToRevoke = rewardRate.mul(
+                        revokeRewardDuration
+                    );
+                    lastUpdateTime = block.timestamp;
+                    totalRewards = totalRewards.sub(rewardToRevoke);
+                    rewardToken.safeTransfer(policy, rewardToRevoke);
+                    emit LogRewardRevoked(revokeRewardDuration, rewardToRevoke);
+                }
             }
         }
         return 0;
@@ -401,8 +406,11 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         internal
         updateReward(address(0))
     {
-        uint256 remaining = periodFinish.sub(block.timestamp);
-        uint256 leftover = remaining.mul(rewardRate);
+        uint256 leftover = 0;
+        if (periodFinish != 0) {
+            uint256 remaining = periodFinish.sub(block.timestamp);
+            leftover = remaining.mul(rewardRate);
+        }
         rewardRate = reward.add(leftover).div(duration);
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp.add(duration);
