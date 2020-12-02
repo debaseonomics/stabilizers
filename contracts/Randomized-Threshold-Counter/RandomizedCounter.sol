@@ -42,7 +42,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./APIConsumer.sol";
 
 contract LPTokenWrapper {
     using SafeMath for uint256;
@@ -78,7 +77,7 @@ contract LPTokenWrapper {
     }
 }
 
-contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
+contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     using Address for address;
 
     event LogSetCountThreshold(uint256 countThreshold_);
@@ -87,10 +86,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     event LogSetRewardAmount(uint256 rewardAmount_);
     event LogSetRevokeReward(bool revokeReward_);
     event LogSetRevokeRewardDuration(uint256 revokeRewardDuration);
-    event LogSetApiConsumer(address apiConsumer_);
 
-    event LogSetRequestPath(string requestPath_);
-    event LogSetRequestParams(string requestParams_);
     event LogSetDuration(uint256 duration_);
     event LogSetPoolEnabled(bool poolEnabled_);
     event LogCountThresholdHit(
@@ -107,7 +103,6 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     event LogManualPoolStarted(uint256 startedAt);
 
     IERC20 public rewardToken;
-    APIConsumer public apiConsumer;
     string public poolName;
     address public policy;
     uint256 public duration;
@@ -120,11 +115,6 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
     uint256 public rewardDistributed;
-
-    // Mean & Sigma request for normal distribution post request
-    string public requestPath;
-
-    string public requestParams;
 
     // Revokes reward until by the duration amount
     uint256 public revokeRewardDuration;
@@ -222,38 +212,17 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
-    function setRequestPath(string calldata requestPath_) external onlyOwner {
-        requestPath = requestPath_;
-        emit LogSetRequestPath(requestPath);
-    }
-
-    function setRequestParams(string calldata requestParams_)
-        external
-        onlyOwner
-    {
-        requestParams = requestParams_;
-        emit LogSetRequestParams(requestParams);
-    }
-
-    function setApiConsumer(address apiConsumer_) external onlyOwner {
-        require(apiConsumer_ != address(0), "Consumer address can't be zero");
-        apiConsumer = APIConsumer(apiConsumer_);
-        emit LogSetApiConsumer(address(apiConsumer));
-    }
-
     function initialize(
         string memory poolName_,
         address rewardToken_,
         address pairToken_,
         address policy_,
-        address apiConsumer_,
         uint256 rewardAmount_,
         uint256 duration_
     ) public initializer {
         poolName = poolName_;
         setStakeToken(pairToken_);
         rewardToken = IERC20(rewardToken_);
-        apiConsumer = APIConsumer(apiConsumer_);
         policy = policy_;
         duration = duration_;
         poolEnabled = false;
@@ -280,12 +249,11 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
             "Only debase policy contract can call this"
         );
 
-        apiConsumer.requestRandomNumber(requestPath, requestParams);
 
         if (supplyDelta_ > 0) {
             count = count.add(1);
 
-            if (count >= apiConsumer.result()) {
+            if (count >= 1) {
                 count = 0;
                 if (
                     debasePolicyBalance >= rewardAmount &&
@@ -297,7 +265,7 @@ contract StabilizerPool is Ownable, Initializable, LPTokenWrapper {
                     emit LogCountThresholdHit(
                         rewardAmount,
                         count,
-                        apiConsumer.result()
+                        1
                     );
                     return rewardAmount;
                 }
