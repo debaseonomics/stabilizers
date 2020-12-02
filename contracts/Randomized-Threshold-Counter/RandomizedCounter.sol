@@ -141,10 +141,19 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     // Flag to send reward before stabilizer pool period time finished
     bool public beforePeriodFinish;
 
+    // Address for the random number contract (chainlink vrf)
     RandomNumberConsumer public randomNumberConsumer;
 
+    //Address of the link token
+    IERC20 public link;
+
+    // The mean for the normal distribution added
     uint256 public noramlDistributionMean;
+
+    // The deviation for te normal distribution added
     uint256 public normalDistributionDeviation;
+
+    // The array of normal distribution value data
     uint256[100] public normalDistribution;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
@@ -165,6 +174,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         _;
     }
 
+    /**
+     * @notice Function to set how much reward the stabilizer will request
+     */
     function setRewardAmount(uint256 rewardAmount_) external onlyOwner {
         rewardAmount = rewardAmount_;
         emit LogSetRewardAmount(rewardAmount);
@@ -179,11 +191,17 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         emit LogSetCountInSequence(!countInSequence);
     }
 
+    /**
+     * @notice Function to enable or disable reward revoking
+     */
     function setRevokeReward(bool revokeReward_) external onlyOwner {
         revokeReward = revokeReward_;
         emit LogSetRevokeReward(revokeReward);
     }
 
+    /**
+     * @notice Function to set how much of the reward duration should be revoked
+     */
     function setRevokeRewardDuration(uint256 revokeRewardDuration_)
         external
         onlyOwner
@@ -198,7 +216,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     /**
      * @notice Function to allow reward distribution before previous rewards have been distributed
-     * @param beforePeriodFinish_ Flag to toggle distribution
      */
     function setBeforePeriodFinish(bool beforePeriodFinish_)
         external
@@ -210,7 +227,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     /**
      * @notice Function to set reward drop period
-     * @param duration_ New drop duration
      */
     function setDuration(uint256 duration_) external onlyOwner {
         require(duration >= 1);
@@ -220,7 +236,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     /**
      * @notice Function enabled or disable pool staking,withdraw
-     * @param poolEnabled_ Flag to toggle pool
      */
     function setPoolEnabled(bool poolEnabled_) external onlyOwner {
         poolEnabled = poolEnabled_;
@@ -228,6 +243,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
+    /**
+     * @notice Function to set address of the random number consumer (chain link vrf)
+     */
     function setRandomNumberConsumer(RandomNumberConsumer randomNumberConsumer_)
         external
         onlyOwner
@@ -236,6 +254,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         emit LogSetRandomNumberConsumer(randomNumberConsumer);
     }
 
+    /**
+     * @notice Function to set the normal distribution array and its associated mean/deviation
+     */
     function setNormalDistribution(
         uint256 noramlDistributionMean_,
         uint256 normalDistributionDeviation_,
@@ -257,12 +278,14 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         address pairToken_,
         address policy_,
         address randomNumberConsumer_,
+        address link_,
         uint256 rewardAmount_,
         uint256 duration_
     ) public initializer {
         poolName = poolName_;
         setStakeToken(pairToken_);
         rewardToken = IERC20(rewardToken_);
+        link = IERC20(link_);
         randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
         policy = policy_;
         duration = duration_;
@@ -275,9 +298,10 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     }
 
     /**
-     * @notice Upon succesive succesful s ( exchange price in target price ) the  count will increase. As the count increases if it
-     * meets the set threshold. Then a precentage of debase tokens assigned to the policy contract will be transfered to the stabilizer pool.
-     * With the added condition that the stabilizer pool has completed it's distribution period or a new flag is set to ovverride the time period.
+     * @notice When a rebase happens this function is called by the rebase function. If the supplyDelta is positive (supply increase) a random
+     * number will be requested from the Chain Link vrf contract. The mod of the random number is taken to get a number between 0-100. This result
+     * is used as a index to get a number from the normal distribution array. The number returned will be compared against the current count of
+     * positive rebases and if the count is greater then the pool is request rewards from the stabilizer pool.
      */
     function checkStabilizerAndGetReward(
         int256 supplyDelta_,
@@ -291,15 +315,27 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         );
 
         if (supplyDelta_ > 0) {
-            randomNumberConsumer.getRandomNumber(block.timestamp);
+            // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
+            if (
+                link.balanceOf(address(randomNumberConsumer)) >=
+                randomNumberConsumer.fee()
+            ) {
+                randomNumberConsumer.getRandomNumber(block.timestamp);
+            } else {
+                return 0;
+            }
+            //Request chain link random number
+
             uint256 randomThreshold = normalDistribution[randomNumberConsumer
                 .randomResult()
                 .mod(100)];
             count = count.add(1);
 
-            if (count >= 8) {
+            if (count >= randomThreshold) {
                 count = 0;
 
+                // Rewards given when stabilizer fund balance is greater than requested amount by the pool and if rewards should be given
+                // before or after previous distribution period has finished.
                 if (
                     debasePolicyBalance >= rewardAmount &&
                     (beforePeriodFinish || block.timestamp >= periodFinish)
@@ -319,8 +355,11 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             count = 0;
             if (revokeReward && block.timestamp < periodFinish) {
                 uint256 timeRemaining = periodFinish.sub(block.timestamp);
+                // Rewards will only be revoked from period after the current period so unclaimed rewards arent taken away.
                 if (timeRemaining >= revokeRewardDuration) {
+                    //Set reward distribution period back
                     periodFinish = periodFinish.sub(revokeRewardDuration);
+                    //Calculate reward to rewark by amount the reward moved back
                     uint256 rewardToRevoke = rewardRate.mul(
                         revokeRewardDuration
                     );

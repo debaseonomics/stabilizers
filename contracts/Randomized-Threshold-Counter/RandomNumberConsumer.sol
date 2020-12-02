@@ -5,9 +5,11 @@ import "@chainlink/contracts/src/v0.6/VRFConsumerBase.sol";
 
 contract RandomNumberConsumer is VRFConsumerBase {
     bytes32 internal keyHash;
-    uint256 internal fee;
+    uint256 public fee;
 
+    // The address to which withdrawn link are given
     address public multiSigSafe;
+    // The address that can request new random numbers
     address public randomizedCounter;
 
     uint256 public randomResult;
