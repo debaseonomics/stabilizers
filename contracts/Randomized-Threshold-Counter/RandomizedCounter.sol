@@ -258,11 +258,11 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
      * @notice Function to set the normal distribution array and its associated mean/deviation
      */
     function setNormalDistribution(
-        uint256 noramlDistributionMean_,
+        uint256 normalDistributionMean_,
         uint256 normalDistributionDeviation_,
         uint256[100] calldata normalDistribution_
     ) external onlyOwner {
-        noramlDistributionMean = noramlDistributionMean_;
+        noramlDistributionMean = normalDistributionMean_;
         normalDistributionDeviation = normalDistributionDeviation_;
         normalDistribution = normalDistribution_;
         emit LogSetNormalDistribution(
