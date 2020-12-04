@@ -104,7 +104,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     event LogSetRandomNumberConsumer(
         RandomNumberConsumer randomNumberConsumer_
     );
-
     event LogRewardAdded(uint256 reward);
     event LogRewardRevoked(uint256 durationRevoked, uint256 amountRevoked);
     event LogStaked(address indexed user, uint256 amount);
@@ -354,7 +353,12 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
                         revokeRewardDuration
                     );
                     lastUpdateTime = block.timestamp;
-                    totalRewards = totalRewards.sub(rewardToRevoke);
+                    if (totalRewards >= rewardToRevoke) {
+                        totalRewards = totalRewards.sub(rewardToRevoke);
+                    } else {
+                        rewardToRevoke = totalRewards;
+                        totalRewards = totalRewards.sub(totalRewards);
+                    }
                     rewardToken.safeTransfer(policy, rewardToRevoke);
                     emit LogRewardRevoked(revokeRewardDuration, rewardToRevoke);
                 }
@@ -456,11 +460,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         internal
         updateReward(address(0))
     {
-        uint256 leftover = 0;
-        if (periodFinish != 0) {
-            uint256 remaining = periodFinish.sub(block.timestamp);
-            leftover = remaining.mul(rewardRate);
-        }
+        uint256 leftover = rewardToken.balanceOf(address(this));
         rewardRate = reward.add(leftover).div(duration);
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp.add(duration);
