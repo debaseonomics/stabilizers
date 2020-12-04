@@ -315,23 +315,13 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         );
 
         if (supplyDelta_ > 0) {
-            // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
-            if (
-                link.balanceOf(address(randomNumberConsumer)) >=
-                randomNumberConsumer.fee()
-            ) {
-                randomNumberConsumer.getRandomNumber(block.timestamp);
-            } else {
-                return 0;
-            }
-            //Request chain link random number
-
-            uint256 randomThreshold = normalDistribution[randomNumberConsumer
-                .randomResult()
-                .mod(100)];
             count = count.add(1);
 
-            if (count >= randomThreshold) {
+            uint256 randomThreshold;
+            bool isValid;
+            (randomThreshold, isValid) = getRandomThreshold();
+
+            if (count >= randomThreshold && isValid) {
                 count = 0;
 
                 // Rewards given when stabilizer fund balance is greater than requested amount by the pool and if rewards should be given
@@ -371,6 +361,27 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             }
         }
         return 0;
+    }
+
+    /**
+     * @notice Function that requests a random number from chainlink and uses it to get a random threshold number from the normal distribution array
+     */
+    function getRandomThreshold() internal returns (uint256, bool) {
+        // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
+        if (
+            link.balanceOf(address(randomNumberConsumer)) >=
+            randomNumberConsumer.fee()
+        ) {
+            randomNumberConsumer.getRandomNumber(block.timestamp);
+        } else {
+            return (0, false);
+        }
+        //Request chain link random number
+
+        uint256 randomNumber = normalDistribution[randomNumberConsumer
+            .randomResult()
+            .mod(100)];
+        return (randomNumber, true);
     }
 
     function lastTimeRewardApplicable() public view returns (uint256) {
