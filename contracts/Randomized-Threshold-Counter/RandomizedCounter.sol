@@ -295,6 +295,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         countInSequence = true;
         revokeReward = false;
         beforePeriodFinish = false;
+        normalDistribution = [15, 10, 10, 11, 11, 9, 10, 10, 10, 10, 11, 11, 9, 10, 8, 7, 9, 9, 8, 11, 8, 11, 8, 12, 11, 13, 8, 10, 9, 7, 8, 9, 11, 11, 10, 9, 10, 9, 11, 9, 9, 14, 12, 8, 6, 14, 9, 11, 9, 13, 10, 11, 13, 13, 6, 9, 7, 11, 10, 8, 10, 10, 7, 9, 12, 10, 11, 9, 13, 12, 9, 9, 12, 9, 9, 11, 10, 9, 8, 12, 12, 8, 10, 10, 14, 11, 12, 10, 11, 8, 7, 11, 10, 11, 8, 7, 11, 8, 9, 6];
+        noramlDistributionMean = 10;
+        normalDistributionDeviation = 2;
     }
 
     /**

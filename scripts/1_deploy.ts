@@ -35,42 +35,25 @@ async function main() {
 
 		const randomizedCounter = await randomizedCounterFactory.deploy();
 		const debase = await debaseFactory.deploy('DEBASE', 'DEBASE');
-		// const randomNumberConsumer = await randomNumberConsumerFactory.deploy('0xdD3782915140c8f3b190B5D67eAc6dc5760C46E9','0xa36085F69e2889c224210F603D836748e7dC0088','0x313bbB5Da55f6087f62DDa5329B5e466698C4D48',randomizedCounter.address)
+		const randomNumberConsumer = await randomNumberConsumerFactory.deploy(
+			'0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B',
+			'0x6c3699283bda56ad74f6b855546325b68d482e983852a7a82979cc4807b641f4',
+			'0x01be23585060835e02b77ef475b0cc51aa1e0709',
+			'0x313bbB5Da55f6087f62DDa5329B5e466698C4D48',
+			randomizedCounter.address
+		);
 
-		await randomizedCounter.initialize(
-			'Random',
+		const tx = await randomizedCounter.initialize(
+			'Random Counter',
 			debase.address,
-			'0x4f96fe3b7a6cf9725f59d353f723c1bdb64ca6aa',
-			'0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
-			'0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
+			'0xc7ad46e0b8a400bb3c915120d284aafba8fc4735',
+			'0x313bbB5Da55f6087f62DDa5329B5e466698C4D48',
+			randomNumberConsumer.address,
+			'0x01be23585060835e02b77ef475b0cc51aa1e0709',
 			parseEther('100'),
 			4 * 24 * 60 * 60
 		);
 
-		console.log('Counter', randomizedCounter.address);
-		console.log('Debase', debase.address);
-
-		await randomizedCounter.setRevokeReward(true);
-		await randomizedCounter.setRevokeRewardDuration(60 * 60 * 24);
-
-		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-		await debase.transfer(randomizedCounter.address, parseEther('100'));
-
-		await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, 1);
-		await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, 1);
-		await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, 1);
-		await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, 1);
-
-
-
-		// console.log("Random",randomNumberConsumer.address)
 	} catch (error) {
 		console.error(error);
 	}
