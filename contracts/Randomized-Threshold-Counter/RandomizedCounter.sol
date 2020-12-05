@@ -293,6 +293,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         rewardAmount = rewardAmount_;
         count = 0;
         countInSequence = true;
+        revokeReward = false;
         beforePeriodFinish = false;
     }
 
@@ -318,7 +319,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
             uint256 randomThreshold;
             bool isValid;
-            (randomThreshold, isValid) = getRandomThreshold();
+            (randomThreshold, isValid) = getOffChainRandomThreshold();
 
             if (count >= randomThreshold && isValid) {
                 count = 0;
@@ -370,7 +371,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     /**
      * @notice Function that requests a random number from chainlink and uses it to get a random threshold number from the normal distribution array
      */
-    function getRandomThreshold() internal returns (uint256, bool) {
+    function getOffChainRandomThreshold() internal returns (uint256, bool) {
         // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
         if (
             link.balanceOf(address(randomNumberConsumer)) >=
@@ -460,8 +461,13 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         internal
         updateReward(address(0))
     {
-        uint256 leftover = rewardToken.balanceOf(address(this));
-        rewardRate = reward.add(leftover).div(duration);
+        if (block.timestamp >= periodFinish) {
+            rewardRate = reward.div(duration);
+        } else {
+            uint256 remaining = periodFinish.sub(block.timestamp);
+            uint256 leftover = remaining.mul(rewardRate);
+            rewardRate = reward.add(leftover).div(duration);
+        }
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp.add(duration);
         emit LogRewardAdded(reward);

@@ -16,6 +16,7 @@ contract RandomNumberConsumer is VRFConsumerBase {
 
     constructor(
         address VRFCoordinator,
+        bytes32 keyhash_,
         address LINK,
         address multiSigSafe_,
         address randomizedCounter_
@@ -26,7 +27,7 @@ contract RandomNumberConsumer is VRFConsumerBase {
             LINK // LINK Token
         )
     {
-        keyHash = 0x6c3699283bda56ad74f6b855546325b68d482e983852a7a82979cc4807b641f4;
+        keyHash = keyhash_;
         fee = 0.1 * 10**18; // 0.1 LINK
         multiSigSafe = multiSigSafe_;
         randomizedCounter = randomizedCounter_;
