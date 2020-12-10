@@ -42,7 +42,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./RandomNumberConsumer.sol";
+import "hardhat/console.sol";
 
 contract LPTokenWrapper {
     using SafeMath for uint256;
@@ -81,6 +81,7 @@ contract LPTokenWrapper {
 contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     using Address for address;
 
+    event LogEmergencyWithdraw(uint256 timestamp);
     event LogSetCountThreshold(uint256 countThreshold_);
     event LogSetBeforePeriodFinish(bool beforePeriodFinish_);
     event LogSetCountInSequence(bool countInSequence_);
@@ -100,9 +101,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256 rewardAmount_,
         uint256 count_,
         uint256 randomThreshold
-    );
-    event LogSetRandomNumberConsumer(
-        RandomNumberConsumer randomNumberConsumer_
     );
     event LogRewardAdded(uint256 reward);
     event LogRewardRevoked(uint256 durationRevoked, uint256 amountRevoked);
@@ -139,12 +137,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     // Flag to send reward before stabilizer pool period time finished
     bool public beforePeriodFinish;
-
-    // Address for the random number contract (chainlink vrf)
-    RandomNumberConsumer public randomNumberConsumer;
-
-    //Address of the link token
-    IERC20 public link;
 
     // The mean for the normal distribution added
     uint256 public noramlDistributionMean;
@@ -242,16 +234,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
-    /**
-     * @notice Function to set address of the random number consumer (chain link vrf)
-     */
-    function setRandomNumberConsumer(RandomNumberConsumer randomNumberConsumer_)
-        external
-        onlyOwner
-    {
-        randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
-        emit LogSetRandomNumberConsumer(randomNumberConsumer);
-    }
 
     /**
      * @notice Function to set the normal distribution array and its associated mean/deviation
@@ -276,16 +258,12 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         address rewardToken_,
         address pairToken_,
         address policy_,
-        address randomNumberConsumer_,
-        address link_,
         uint256 rewardAmount_,
         uint256 duration_
     ) public initializer {
         poolName = poolName_;
         setStakeToken(pairToken_);
         rewardToken = IERC20(rewardToken_);
-        link = IERC20(link_);
-        randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
         policy = policy_;
         duration = duration_;
         poolEnabled = false;
@@ -302,7 +280,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     /**
      * @notice When a rebase happens this function is called by the rebase function. If the supplyDelta is positive (supply increase) a random
-     * number will be requested from the Chain Link vrf contract. The mod of the random number is taken to get a number between 0-100. This result
+     * will be constructed using the blockhash of the last block number. The mod of the random number is taken to get a number between 0-100. This result
      * is used as a index to get a number from the normal distribution array. The number returned will be compared against the current count of
      * positive rebases and if the count is greater then the pool is request rewards from the stabilizer pool.
      */
@@ -320,11 +298,10 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         if (supplyDelta_ > 0) {
             count = count.add(1);
 
-            uint256 randomThreshold;
-            bool isValid;
-            (randomThreshold, isValid) = getOffChainRandomThreshold();
+            uint256 randomThreshold = getOnChainRandomThreshold();
 
-            if (count >= randomThreshold && isValid) {
+            console.log("Threshold hit",count,randomThreshold); 
+            if (count >= randomThreshold) {
                 count = 0;
 
                 // Rewards given when stabilizer fund balance is greater than requested amount by the pool and if rewards should be given
@@ -333,6 +310,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
                     debasePolicyBalance >= rewardAmount &&
                     (beforePeriodFinish || block.timestamp >= periodFinish)
                 ) {
+
                     totalRewards = totalRewards.add(rewardAmount);
                     notifyRewardAmount(rewardAmount);
 
@@ -372,24 +350,19 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     }
 
     /**
-     * @notice Function that requests a random number from chainlink and uses it to get a random threshold number from the normal distribution array
+     * @notice Function that generates a random number uses that for normal array index
      */
-    function getOffChainRandomThreshold() internal returns (uint256, bool) {
-        // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
-        if (
-            link.balanceOf(address(randomNumberConsumer)) >=
-            randomNumberConsumer.fee()
-        ) {
-            randomNumberConsumer.getRandomNumber(block.timestamp);
-        } else {
-            return (0, false);
-        }
-        //Request chain link random number
+    function getOnChainRandomThreshold() view internal returns (uint256) {
+        uint256 randomNumber = normalDistribution[uint256(blockhash(block.number)).mod(100)];
+        return randomNumber;
+    }
 
-        uint256 randomNumber = normalDistribution[randomNumberConsumer
-            .randomResult()
-            .mod(100)];
-        return (randomNumber, true);
+    /**
+     * @notice Function allows for emergency withdrawal of all reward tokens back into stabilizer fund
+     */
+    function emergencyWithdraw() external onlyOwner {
+        rewardToken.safeTransfer(policy,rewardToken.balanceOf(address(this)));
+        emit LogEmergencyWithdraw(block.timestamp);
     }
 
     function lastTimeRewardApplicable() public view returns (uint256) {
@@ -438,7 +411,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         public
         override
         updateReward(msg.sender)
-        enabled
     {
         require(amount > 0, "Cannot withdraw 0");
         super.withdraw(amount);
