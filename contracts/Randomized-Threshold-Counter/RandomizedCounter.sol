@@ -96,6 +96,12 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     event LogSetDuration(uint256 duration_);
     event LogSetPoolEnabled(bool poolEnabled_);
+    
+    event LogSetEnableUserLpLimit(bool enableUserLpLimit_);
+    event LogSetEnablePoolLpLimit(bool enablePoolLpLimit_);
+    event LogSetUserLpLimit(uint256 userLpLimit_);
+    event LogSetPoolLpLimit(uint256 poolLpLimit_);
+
     event LogCountThresholdHit(
         uint256 rewardAmount_,
         uint256 count_,
@@ -121,6 +127,16 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
     uint256 public rewardDistributed;
+
+    //Flag to enable amount of lp that can be staked by a account
+    bool public enableUserLpLimit;
+    //Amount of lp that can be staked by a account
+    uint256 public userLpLimit;
+
+    //Flag to enable total amount of lp that can be staked by all users
+    bool public enablePoolLpLimit;
+    //Total amount of lp tat can be staked
+    uint256 public poolLpLimit;
 
     // Revokes reward until by the duration amount
     uint256 public revokeRewardDuration;
@@ -233,6 +249,40 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
+    /**
+     * @notice Function to enable user lp limit
+     */
+    function setEnableUserLpLimit(bool enableUserLpLimit_) external onlyOwner {
+        enableUserLpLimit = enableUserLpLimit_;
+        emit LogSetEnableUserLpLimit(enableUserLpLimit);
+    }
+
+    /**
+     * @notice Function to set user lp limit
+     */
+    function setUserLpLimit(uint256 userLpLimit_) external onlyOwner {
+        require(userLpLimit_ <= poolLpLimit,"User lp limit can't be more than pool limit");
+        userLpLimit = userLpLimit_;
+        emit LogSetUserLpLimit(userLpLimit);
+    }
+
+    /**
+     * @notice Function to enable pool lp limit
+     */
+    function setEnablePoolLpLimit(bool enablePoolLpLimit_) external onlyOwner {
+        enablePoolLpLimit = enablePoolLpLimit_;
+        emit LogSetEnablePoolLpLimit(enablePoolLpLimit);
+    }
+
+    /**
+     * @notice Function to set pool lp limit
+     */
+    function setPoolLpLimit(uint256 poolLpLimit_) external onlyOwner {
+        require(poolLpLimit_ >= userLpLimit,"Pool lp limit can't be less than user lp limit");
+        poolLpLimit = poolLpLimit_;
+        emit LogSetPoolLpLimit(poolLpLimit);
+    }
+
 
     /**
      * @notice Function to set the normal distribution array and its associated mean/deviation
@@ -267,6 +317,10 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         duration = duration_;
         poolEnabled = false;
 
+        enableUserLpLimit = false;
+        enablePoolLpLimit = false;
+        userLpLimit = 10000 * 10 ** 18;
+        poolLpLimit = 50000 * 10 ** 18;
         rewardAmount = rewardAmount_;
         count = 0;
         revokeRewardDuration = 1 days;
@@ -402,6 +456,13 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             "Caller must not be a contract"
         );
         require(amount > 0, "Cannot stake 0");
+        if(enableUserLpLimit){
+            require(amount <= userLpLimit,"Can't stake more than lp limit");
+        }
+        if(enablePoolLpLimit){
+            uint256 lpBalance = totalSupply();
+            require(amount.add(lpBalance) <= poolLpLimit,"Can't stake pool lp limit reached");
+        }
         super.stake(amount);
         emit LogStaked(msg.sender, amount);
     }
