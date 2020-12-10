@@ -42,7 +42,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "hardhat/console.sol";
 
 contract LPTokenWrapper {
     using SafeMath for uint256;
@@ -300,7 +299,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
             uint256 randomThreshold = getOnChainRandomThreshold();
 
-            console.log("Threshold hit",count,randomThreshold); 
             if (count >= randomThreshold) {
                 count = 0;
 
