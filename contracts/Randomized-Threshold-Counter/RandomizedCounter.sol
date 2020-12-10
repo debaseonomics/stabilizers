@@ -269,6 +269,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
         rewardAmount = rewardAmount_;
         count = 0;
+        revokeRewardDuration = 1 days;
         countInSequence = true;
         revokeReward = false;
         beforePeriodFinish = false;
