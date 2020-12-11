@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import '@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol';
 import "./lib/SafeMathInt.sol";
 
 contract DebtPool is Ownable, Initializable {
@@ -17,8 +18,9 @@ contract DebtPool is Ownable, Initializable {
     IERC20 public debase;
     uint256 public debtBalance;
     string public poolName;
-    uint256 public rewardAmount;
-    uint256 public duration;
+
+    uint256 public rewardClaimPercentage;
+    IUniswapV2Pair public debaseDaiUniPair;
 
     mapping(address => uint256) userCouponBalances;
     uint256 public couponsIssued;
@@ -28,14 +30,12 @@ contract DebtPool is Ownable, Initializable {
         string memory poolName_,
         address debase_,
         address policy_,
-        uint256 rewardAmount_,
-        uint256 duration_
+        address debaseDaiUniPair_
     ) public initializer {
         poolName = poolName_;
         debase = IERC20(debase_);
-        rewardAmount = rewardAmount_;
-        duration = duration_;
         policy = policy_;
+        debaseDaiUniPair = IUniswapV2Pair(debaseDaiUniPair_);
     }
 
     function checkStabilizerAndGetReward(
@@ -53,9 +53,9 @@ contract DebtPool is Ownable, Initializable {
             debtBalance = uint256(supplyDelta_.abs());
         } else {
             uint256 poolBalance = debase.balanceOf(address(this));
-            if (poolBalance < couponsIssued) {
-                return rewardAmount;
-            }
+            // if (poolBalance < couponsIssued) {
+            //     return rewardAmount;
+            // }
         }
         return 0;
     }
@@ -73,6 +73,10 @@ contract DebtPool is Ownable, Initializable {
         userCouponBalances[msg.sender] = balanceToTransfer;
         couponsIssued = couponsIssued.add(balanceToTransfer);
         debase.safeTransfer(address(this), balanceToTransfer);
+    }
+
+    function calulateDebasePrice() external {
+        
     }
 
     function sellCoupons(uint256 amount) external {}

@@ -42,6 +42,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./RandomNumberConsumer.sol";
 
 contract LPTokenWrapper {
     using SafeMath for uint256;
@@ -93,10 +94,12 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256[100] normalDistribution_
     );
     event LogCountThreshold(uint256 count_, uint256 index, uint256 threshold_);
-
+    event LogSetRandomNumberConsumer(
+        RandomNumberConsumer randomNumberConsumer_
+    );
     event LogSetDuration(uint256 duration_);
     event LogSetPoolEnabled(bool poolEnabled_);
-    
+
     event LogSetEnableUserLpLimit(bool enableUserLpLimit_);
     event LogSetEnablePoolLpLimit(bool enablePoolLpLimit_);
     event LogSetUserLpLimit(uint256 userLpLimit_);
@@ -149,6 +152,12 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     // Flag to enable or disable   sequence checker
     bool public countInSequence;
+
+    // Address for the random number contract (chainlink vrf)
+    RandomNumberConsumer public randomNumberConsumer;
+
+    //Address of the link token
+    IERC20 public link;
 
     // Flag to send reward before stabilizer pool period time finished
     bool public beforePeriodFinish;
@@ -261,7 +270,10 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
      * @notice Function to set user lp limit
      */
     function setUserLpLimit(uint256 userLpLimit_) external onlyOwner {
-        require(userLpLimit_ <= poolLpLimit,"User lp limit can't be more than pool limit");
+        require(
+            userLpLimit_ <= poolLpLimit,
+            "User lp limit can't be more than pool limit"
+        );
         userLpLimit = userLpLimit_;
         emit LogSetUserLpLimit(userLpLimit);
     }
@@ -278,11 +290,24 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
      * @notice Function to set pool lp limit
      */
     function setPoolLpLimit(uint256 poolLpLimit_) external onlyOwner {
-        require(poolLpLimit_ >= userLpLimit,"Pool lp limit can't be less than user lp limit");
+        require(
+            poolLpLimit_ >= userLpLimit,
+            "Pool lp limit can't be less than user lp limit"
+        );
         poolLpLimit = poolLpLimit_;
         emit LogSetPoolLpLimit(poolLpLimit);
     }
 
+    /**
+     * @notice Function to set address of the random number consumer (chain link vrf)
+     */
+    function setRandomNumberConsumer(RandomNumberConsumer randomNumberConsumer_)
+        external
+        onlyOwner
+    {
+        randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
+        emit LogSetRandomNumberConsumer(randomNumberConsumer);
+    }
 
     /**
      * @notice Function to set the normal distribution array and its associated mean/deviation
@@ -307,29 +332,45 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         address rewardToken_,
         address pairToken_,
         address policy_,
+        address randomNumberConsumer_,
+        address link_,
         uint256 rewardAmount_,
-        uint256 duration_
+        uint256 duration_,
+        bool enableUserLpLimit_,
+        uint256 userLpLimit_,
+        bool enablePoolLpLimit_,
+        uint256 poolLpLimit_,
+        bool poolEnabled_,
+        uint256 revokeRewardDuration_,
+        bool countInSequence_,
+        bool revokeReward_,
+        bool beforePeriodFinish_,
+        uint256[100] calldata normalDistribution_,
+        uint256 normalDistributionMean_,
+        uint256 normalDistributionDeviation_
     ) public initializer {
         poolName = poolName_;
         setStakeToken(pairToken_);
         rewardToken = IERC20(rewardToken_);
+        link = IERC20(link_);
+        randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
         policy = policy_;
-        duration = duration_;
-        poolEnabled = false;
-
-        enableUserLpLimit = false;
-        enablePoolLpLimit = false;
-        userLpLimit = 10000 * 10 ** 18;
-        poolLpLimit = 50000 * 10 ** 18;
-        rewardAmount = rewardAmount_;
         count = 0;
-        revokeRewardDuration = 1 days;
-        countInSequence = true;
-        revokeReward = false;
-        beforePeriodFinish = false;
-        normalDistribution = [15, 10, 10, 11, 11, 9, 10, 10, 10, 10, 11, 11, 9, 10, 8, 7, 9, 9, 8, 11, 8, 11, 8, 12, 11, 13, 8, 10, 9, 7, 8, 9, 11, 11, 10, 9, 10, 9, 11, 9, 9, 14, 12, 8, 6, 14, 9, 11, 9, 13, 10, 11, 13, 13, 6, 9, 7, 11, 10, 8, 10, 10, 7, 9, 12, 10, 11, 9, 13, 12, 9, 9, 12, 9, 9, 11, 10, 9, 8, 12, 12, 8, 10, 10, 14, 11, 12, 10, 11, 8, 7, 11, 10, 11, 8, 7, 11, 8, 9, 6];
-        noramlDistributionMean = 10;
-        normalDistributionDeviation = 2;
+
+        duration = duration_;
+        poolEnabled = poolEnabled_;
+        enableUserLpLimit = enableUserLpLimit_;
+        enablePoolLpLimit = enablePoolLpLimit_;
+        userLpLimit = userLpLimit_;
+        poolLpLimit = poolLpLimit_;
+        rewardAmount = rewardAmount_;
+        revokeRewardDuration = revokeRewardDuration_;
+        countInSequence = countInSequence_;
+        revokeReward = revokeReward_;
+        beforePeriodFinish = beforePeriodFinish_;
+        normalDistribution = normalDistribution_;
+        noramlDistributionMean = normalDistributionMean_;
+        normalDistributionDeviation = normalDistributionDeviation_;
     }
 
     /**
@@ -352,9 +393,11 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         if (supplyDelta_ > 0) {
             count = count.add(1);
 
-            uint256 randomThreshold = getOnChainRandomThreshold();
+            uint256 randomThreshold;
+            bool isValid;
+            (randomThreshold, isValid) = getOffChainRandomThreshold();
 
-            if (count >= randomThreshold) {
+            if (count >= randomThreshold && isValid) {
                 count = 0;
 
                 // Rewards given when stabilizer fund balance is greater than requested amount by the pool and if rewards should be given
@@ -363,7 +406,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
                     debasePolicyBalance >= rewardAmount &&
                     (beforePeriodFinish || block.timestamp >= periodFinish)
                 ) {
-
                     totalRewards = totalRewards.add(rewardAmount);
                     notifyRewardAmount(rewardAmount);
 
@@ -403,18 +445,31 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     }
 
     /**
-     * @notice Function that generates a random number uses that for normal array index
+     * @notice Function that requests a random number from chainlink and uses it to get a random threshold number from the normal distribution array
      */
-    function getOnChainRandomThreshold() view internal returns (uint256) {
-        uint256 randomNumber = normalDistribution[uint256(blockhash(block.number)).mod(100)];
-        return randomNumber;
+    function getOffChainRandomThreshold() internal returns (uint256, bool) {
+        // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
+        if (
+            link.balanceOf(address(randomNumberConsumer)) >=
+            randomNumberConsumer.fee()
+        ) {
+            randomNumberConsumer.getRandomNumber(block.timestamp);
+        } else {
+            return (0, false);
+        }
+        //Request chain link random number
+
+        uint256 randomNumber = normalDistribution[randomNumberConsumer
+            .randomResult()
+            .mod(100)];
+        return (randomNumber, true);
     }
 
     /**
      * @notice Function allows for emergency withdrawal of all reward tokens back into stabilizer fund
      */
     function emergencyWithdraw() external onlyOwner {
-        rewardToken.safeTransfer(policy,rewardToken.balanceOf(address(this)));
+        rewardToken.safeTransfer(policy, rewardToken.balanceOf(address(this)));
         emit LogEmergencyWithdraw(block.timestamp);
     }
 
@@ -456,22 +511,21 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             "Caller must not be a contract"
         );
         require(amount > 0, "Cannot stake 0");
-        if(enableUserLpLimit){
-            require(amount <= userLpLimit,"Can't stake more than lp limit");
+        if (enableUserLpLimit) {
+            require(amount <= userLpLimit, "Can't stake more than lp limit");
         }
-        if(enablePoolLpLimit){
+        if (enablePoolLpLimit) {
             uint256 lpBalance = totalSupply();
-            require(amount.add(lpBalance) <= poolLpLimit,"Can't stake pool lp limit reached");
+            require(
+                amount.add(lpBalance) <= poolLpLimit,
+                "Can't stake pool lp limit reached"
+            );
         }
         super.stake(amount);
         emit LogStaked(msg.sender, amount);
     }
 
-    function withdraw(uint256 amount)
-        public
-        override
-        updateReward(msg.sender)
-    {
+    function withdraw(uint256 amount) public override updateReward(msg.sender) {
         require(amount > 0, "Cannot withdraw 0");
         super.withdraw(amount);
         emit LogWithdrawn(msg.sender, amount);
