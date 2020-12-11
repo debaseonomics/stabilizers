@@ -118,7 +118,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     event LogManualPoolStarted(uint256 startedAt);
 
     IERC20 public rewardToken;
-    string public poolName;
     address public policy;
     uint256 public duration;
     bool public poolEnabled;
@@ -328,7 +327,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     }
 
     function initialize(
-        string memory poolName_,
         address rewardToken_,
         address pairToken_,
         address policy_,
@@ -336,20 +334,13 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         address link_,
         uint256 rewardAmount_,
         uint256 duration_,
-        bool enableUserLpLimit_,
         uint256 userLpLimit_,
-        bool enablePoolLpLimit_,
         uint256 poolLpLimit_,
-        bool poolEnabled_,
         uint256 revokeRewardDuration_,
-        bool countInSequence_,
-        bool revokeReward_,
-        bool beforePeriodFinish_,
-        uint256[100] calldata normalDistribution_,
         uint256 normalDistributionMean_,
-        uint256 normalDistributionDeviation_
+        uint256 normalDistributionDeviation_,
+        uint256[100] memory normalDistribution_
     ) public initializer {
-        poolName = poolName_;
         setStakeToken(pairToken_);
         rewardToken = IERC20(rewardToken_);
         link = IERC20(link_);
@@ -358,16 +349,11 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         count = 0;
 
         duration = duration_;
-        poolEnabled = poolEnabled_;
-        enableUserLpLimit = enableUserLpLimit_;
-        enablePoolLpLimit = enablePoolLpLimit_;
         userLpLimit = userLpLimit_;
         poolLpLimit = poolLpLimit_;
         rewardAmount = rewardAmount_;
         revokeRewardDuration = revokeRewardDuration_;
-        countInSequence = countInSequence_;
-        revokeReward = revokeReward_;
-        beforePeriodFinish = beforePeriodFinish_;
+        countInSequence = true;
         normalDistribution = normalDistribution_;
         noramlDistributionMean = normalDistributionMean_;
         normalDistributionDeviation = normalDistributionDeviation_;

@@ -6,6 +6,7 @@ import "@chainlink/contracts/src/v0.6/VRFConsumerBase.sol";
 contract RandomNumberConsumer is VRFConsumerBase {
     bytes32 internal keyHash;
     uint256 public fee;
+    address public VRFCoordinator;
 
     // The address to which withdrawn link are given
     address public multiSigSafe;
@@ -15,7 +16,7 @@ contract RandomNumberConsumer is VRFConsumerBase {
     uint256 public randomResult;
 
     constructor(
-        address VRFCoordinator,
+        address VRFCoordinator_,
         bytes32 keyhash_,
         address LINK,
         address multiSigSafe_,
@@ -23,10 +24,11 @@ contract RandomNumberConsumer is VRFConsumerBase {
     )
         public
         VRFConsumerBase(
-            VRFCoordinator, // VRF Coordinator
+            VRFCoordinator_, // VRF Coordinator
             LINK // LINK Token
         )
     {
+        VRFCoordinator = VRFCoordinator_;
         keyHash = keyhash_;
         fee = 0.1 * 10**18; // 0.1 LINK
         multiSigSafe = multiSigSafe_;
