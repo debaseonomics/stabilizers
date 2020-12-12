@@ -367,9 +367,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     /**
      * @notice When a rebase happens this function is called by the rebase function. If the supplyDelta is positive (supply increase) a random
-     * will be constructed using the blockhash of the last block number. The mod of the random number is taken to get a number between 0-100. This result
+     * will be constructed using Chainlink VRF. The mod of the random number is taken to get a number between 0-100. This result
      * is used as a index to get a number from the normal distribution array. The number returned will be compared against the current count of
-     * positive rebases and if the count is greater then the pool is request rewards from the stabilizer pool.
+     * positive rebases and if the count is equal to or greater that the number obtained from array, then the pool will request rewards from the stabilizer pool.
      */
     function checkStabilizerAndGetReward(
         int256 supplyDelta_,
