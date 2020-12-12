@@ -20,7 +20,8 @@ contract RandomNumberConsumer is VRFConsumerBase {
         bytes32 keyhash_,
         address LINK,
         address multiSigSafe_,
-        address randomizedCounter_
+        address randomizedCounter_,
+        uint256 fee_
     )
         public
         VRFConsumerBase(
@@ -30,9 +31,17 @@ contract RandomNumberConsumer is VRFConsumerBase {
     {
         VRFCoordinator = VRFCoordinator_;
         keyHash = keyhash_;
-        fee = 0.1 * 10**18; // 0.1 LINK
+        fee = fee_;
         multiSigSafe = multiSigSafe_;
         randomizedCounter = randomizedCounter_;
+    }
+
+    function setFee(uint256 fee_) external {
+        require(
+            msg.sender == randomizedCounter,
+            "Only counter can call this function"
+        );
+        fee = fee_;
     }
 
     /**

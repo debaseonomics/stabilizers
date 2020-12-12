@@ -99,6 +99,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     );
     event LogSetDuration(uint256 duration_);
     event LogSetPoolEnabled(bool poolEnabled_);
+    event LogSetRandomNumberConsumerFee(uint256 fee_);
 
     event LogSetEnableUserLpLimit(bool enableUserLpLimit_);
     event LogSetEnablePoolLpLimit(bool enablePoolLpLimit_);
@@ -324,6 +325,11 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             normalDistributionDeviation,
             normalDistribution
         );
+    }
+
+    function setRandomNumberConsumerFee(uint256 fee_) external onlyOwner {
+        randomNumberConsumer.setFee(fee_);
+        emit LogSetRandomNumberConsumerFee(fee_);
     }
 
     function initialize(
