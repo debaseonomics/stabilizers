@@ -1,10 +1,10 @@
 import { run, ethers } from 'hardhat';
 
-import RandomizedCounterArtifact from '../artifacts/contracts/Randomized-Threshold-Counter/RandomizedCounter.sol/RandomizedCounter.json';
-import RandomNumberConsumerArtifact from '../artifacts/contracts/Randomized-Threshold-Counter/RandomNumberConsumer.sol/RandomNumberConsumer.json';
+import RandomizedCounterArtifact from '../../artifacts/contracts/Randomized-Threshold-Counter/RandomizedCounter.sol/RandomizedCounter.json';
+import RandomNumberConsumerArtifact from '../../artifacts/contracts/Randomized-Threshold-Counter/RandomNumberConsumer.sol/RandomNumberConsumer.json';
 
-import { RandomizedCounterFactory } from '../typechain/RandomizedCounterFactory';
-import { RandomNumberConsumerFactory } from '../typechain/RandomNumberConsumerFactory';
+import { RandomizedCounterFactory } from '../../typechain/RandomizedCounterFactory';
+import { RandomNumberConsumerFactory } from '../../typechain/RandomNumberConsumerFactory';
 
 import { parseEther } from 'ethers/lib/utils';
 
