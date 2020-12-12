@@ -30,7 +30,7 @@ contract RandomNumberConsumer is VRFConsumerBase {
     {
         VRFCoordinator = VRFCoordinator_;
         keyHash = keyhash_;
-        fee = 0.1 * 10**18; // 0.1 LINK
+        fee = 2 * 10**18; // 2 LINK
         multiSigSafe = multiSigSafe_;
         randomizedCounter = randomizedCounter_;
     }
