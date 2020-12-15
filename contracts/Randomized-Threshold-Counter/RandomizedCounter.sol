@@ -85,7 +85,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     event LogSetCountThreshold(uint256 countThreshold_);
     event LogSetBeforePeriodFinish(bool beforePeriodFinish_);
     event LogSetCountInSequence(bool countInSequence_);
-    event LogSetRewardAmount(uint256 rewardAmount_);
+    event LogSetRewardPercentage(uint256 rewardPercentage_);
     event LogSetRevokeReward(bool revokeReward_);
     event LogSetRevokeRewardPrecentage(uint256 revokeRewardPrecentage_);
     event LogSetNormalDistribution(
@@ -123,11 +123,11 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     uint256 public duration;
     bool public poolEnabled;
 
-    uint256 public rewardAmount;
     uint256 public periodFinish;
     uint256 public rewardRate;
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
+    uint256 public rewardPercentage;
     uint256 public rewardDistributed;
 
     //Flag to enable amount of lp that can be staked by a account
@@ -191,9 +191,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     /**
      * @notice Function to set how much reward the stabilizer will request
      */
-    function setRewardAmount(uint256 rewardAmount_) external onlyOwner {
-        rewardAmount = rewardAmount_;
-        emit LogSetRewardAmount(rewardAmount);
+    function setRewardPercentage(uint256 rewardPercentage_) external onlyOwner {
+        rewardPercentage = rewardPercentage_;
+        emit LogSetRewardPercentage(rewardPercentage);
     }
 
     /**
@@ -220,10 +220,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         external
         onlyOwner
     {
-        require(
-            revokeRewardPrecentage_ >= 1 && revokeRewardPrecentage_ <= 100,
-            "Revoke duration should be less than total duration"
-        );
         revokeRewardPrecentage = revokeRewardPrecentage_;
         emit LogSetRevokeRewardPrecentage(revokeRewardPrecentage_);
     }
@@ -337,7 +333,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         address policy_,
         address randomNumberConsumer_,
         address link_,
-        uint256 rewardAmount_,
+        uint256 rewardPercentage_,
         uint256 duration_,
         uint256 userLpLimit_,
         uint256 poolLpLimit_,
@@ -356,7 +352,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         duration = duration_;
         userLpLimit = userLpLimit_;
         poolLpLimit = poolLpLimit_;
-        rewardAmount = rewardAmount_;
+        rewardPercentage = rewardPercentage_;
         revokeRewardPrecentage = revokeRewardPrecentage_;
         countInSequence = true;
         normalDistribution = normalDistribution_;
@@ -393,17 +389,22 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
                 // Rewards given when stabilizer fund balance is greater than requested amount by the pool and if rewards should be given
                 // before or after previous distribution period has finished.
+                uint256 rewardToClaim = (
+                    rewardToken.balanceOf(address(policy)).mul(rewardPercentage)
+                )
+                    .div(10**18);
+
                 if (
-                    debasePolicyBalance >= rewardAmount &&
+                    debasePolicyBalance >= rewardToClaim &&
                     (beforePeriodFinish || block.timestamp >= periodFinish)
                 ) {
                     notifyRewardAmount(true);
                     emit LogCountThresholdHit(
-                        rewardAmount,
+                        rewardToClaim,
                         count,
                         randomThreshold
                     );
-                    return rewardAmount;
+                    return rewardToClaim;
                 }
             }
         } else if (countInSequence) {
@@ -413,7 +414,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
                 uint256 rewardToRevoke = rewardToken
                     .balanceOf(address(this))
                     .mul(revokeRewardPrecentage)
-                    .div(100);
+                    .div(10**18);
                 rewardToken.safeTransfer(policy, rewardToRevoke);
                 emit LogRewardRevoked(revokeRewardPrecentage, rewardToRevoke);
             }
