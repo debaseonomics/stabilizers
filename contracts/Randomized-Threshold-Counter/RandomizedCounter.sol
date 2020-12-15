@@ -87,7 +87,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     event LogSetCountInSequence(bool countInSequence_);
     event LogSetRewardAmount(uint256 rewardAmount_);
     event LogSetRevokeReward(bool revokeReward_);
-    event LogSetRevokeRewardDuration(uint256 revokeRewardDuration);
+    event LogSetRevokeRewardPrecentage(uint256 revokeRewardPrecentage_);
     event LogSetNormalDistribution(
         uint256 noramlDistributionMean_,
         uint256 normalDistributionDeviation_,
@@ -112,7 +112,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256 randomThreshold
     );
     event LogRewardAdded(uint256 reward);
-    event LogRewardRevoked(uint256 durationRevoked, uint256 amountRevoked);
+    event LogRewardRevoked(uint256 precentageRevoked, uint256 amountRevoked);
     event LogStaked(address indexed user, uint256 amount);
     event LogWithdrawn(address indexed user, uint256 amount);
     event LogRewardPaid(address indexed user, uint256 reward);
@@ -123,7 +123,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     uint256 public duration;
     bool public poolEnabled;
 
-    uint256 public totalRewards;
     uint256 public rewardAmount;
     uint256 public periodFinish;
     uint256 public rewardRate;
@@ -141,8 +140,8 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     //Total amount of lp tat can be staked
     uint256 public poolLpLimit;
 
-    // Revokes reward until by the duration amount
-    uint256 public revokeRewardDuration;
+    // Revokes reward in relation to the percentage
+    uint256 public revokeRewardPrecentage;
 
     // Should revoke reward
     bool public revokeReward;
@@ -217,16 +216,16 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     /**
      * @notice Function to set how much of the reward duration should be revoked
      */
-    function setRevokeRewardDuration(uint256 revokeRewardDuration_)
+    function setRevokeRewardPercentage(uint256 revokeRewardPrecentage_)
         external
         onlyOwner
     {
         require(
-            revokeRewardDuration < duration,
+            revokeRewardPrecentage_ >= 1 && revokeRewardPrecentage_ <= 100,
             "Revoke duration should be less than total duration"
         );
-        revokeRewardDuration = revokeRewardDuration_;
-        emit LogSetRevokeRewardDuration(revokeRewardDuration);
+        revokeRewardPrecentage = revokeRewardPrecentage_;
+        emit LogSetRevokeRewardPrecentage(revokeRewardPrecentage_);
     }
 
     /**
@@ -342,7 +341,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256 duration_,
         uint256 userLpLimit_,
         uint256 poolLpLimit_,
-        uint256 revokeRewardDuration_,
+        uint256 revokeRewardPrecentage_,
         uint256 normalDistributionMean_,
         uint256 normalDistributionDeviation_,
         uint256[100] memory normalDistribution_
@@ -358,7 +357,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         userLpLimit = userLpLimit_;
         poolLpLimit = poolLpLimit_;
         rewardAmount = rewardAmount_;
-        revokeRewardDuration = revokeRewardDuration_;
+        revokeRewardPrecentage = revokeRewardPrecentage_;
         countInSequence = true;
         normalDistribution = normalDistribution_;
         noramlDistributionMean = normalDistributionMean_;
@@ -398,9 +397,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
                     debasePolicyBalance >= rewardAmount &&
                     (beforePeriodFinish || block.timestamp >= periodFinish)
                 ) {
-                    totalRewards = totalRewards.add(rewardAmount);
-                    notifyRewardAmount(rewardAmount);
-
+                    notifyRewardAmount(true);
                     emit LogCountThresholdHit(
                         rewardAmount,
                         count,
@@ -412,25 +409,13 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         } else if (countInSequence) {
             count = 0;
             if (revokeReward && block.timestamp < periodFinish) {
-                uint256 timeRemaining = periodFinish.sub(block.timestamp);
-                // Rewards will only be revoked from period after the current period so unclaimed rewards arent taken away.
-                if (timeRemaining >= revokeRewardDuration) {
-                    //Set reward distribution period back
-                    periodFinish = periodFinish.sub(revokeRewardDuration);
-                    //Calculate reward to rewark by amount the reward moved back
-                    uint256 rewardToRevoke = rewardRate.mul(
-                        revokeRewardDuration
-                    );
-                    lastUpdateTime = block.timestamp;
-                    if (totalRewards >= rewardToRevoke) {
-                        totalRewards = totalRewards.sub(rewardToRevoke);
-                    } else {
-                        rewardToRevoke = totalRewards;
-                        totalRewards = totalRewards.sub(totalRewards);
-                    }
-                    rewardToken.safeTransfer(policy, rewardToRevoke);
-                    emit LogRewardRevoked(revokeRewardDuration, rewardToRevoke);
-                }
+                notifyRewardAmount(false);
+                uint256 rewardToRevoke = rewardToken
+                    .balanceOf(address(this))
+                    .mul(revokeRewardPrecentage)
+                    .div(100);
+                rewardToken.safeTransfer(policy, rewardToRevoke);
+                emit LogRewardRevoked(revokeRewardPrecentage, rewardToRevoke);
             }
         }
         return 0;
@@ -477,7 +462,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             rewardPerTokenStored.add(
                 lastTimeRewardApplicable()
                     .sub(lastUpdateTime)
-                    .mul(rewardRate)
+                    .mul(rewardToken.balanceOf(address(this)).div(duration))
                     .mul(10**18)
                     .div(totalSupply())
             );
@@ -538,19 +523,13 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         }
     }
 
-    function notifyRewardAmount(uint256 reward)
+    function notifyRewardAmount(bool updatePeriod)
         internal
         updateReward(address(0))
     {
-        if (block.timestamp >= periodFinish) {
-            rewardRate = reward.div(duration);
-        } else {
-            uint256 remaining = periodFinish.sub(block.timestamp);
-            uint256 leftover = remaining.mul(rewardRate);
-            rewardRate = reward.add(leftover).div(duration);
-        }
         lastUpdateTime = block.timestamp;
-        periodFinish = block.timestamp.add(duration);
-        emit LogRewardAdded(reward);
+        if (updatePeriod) {
+            periodFinish = block.timestamp.add(duration);
+        }
     }
 }
