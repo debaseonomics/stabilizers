@@ -389,9 +389,8 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
                 // Rewards given when stabilizer fund balance is greater than requested amount by the pool and if rewards should be given
                 // before or after previous distribution period has finished.
-                uint256 rewardToClaim = (
-                    rewardToken.balanceOf(address(policy)).mul(rewardPercentage)
-                )
+                uint256 rewardToClaim = debasePolicyBalance
+                    .mul(rewardPercentage)
                     .div(10**18);
 
                 if (
