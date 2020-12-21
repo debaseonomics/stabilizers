@@ -23,7 +23,7 @@ contract MintCoupons is Parameters {
         uint256 totalSupply,
         uint256 totalDebt,
         uint256 amount
-    ) internal pure returns (uint256) {
+    ) internal view returns (uint256) {
         return
             effectivePremium(totalSupply, totalDebt, amount)
                 .mul(amount)
@@ -34,33 +34,27 @@ contract MintCoupons is Parameters {
         uint256 totalSupply,
         uint256 totalDebt,
         uint256 amount
-    ) private pure returns (Decimal.D256 memory) {
+    ) private view returns (Decimal.D256 memory) {
         Decimal.D256 memory debtRatio = Decimal.ratio(totalDebt, totalSupply);
         Decimal.D256 memory debtRatioUpperBound = getDebtRatioCap();
 
         uint256 totalSupplyEnd = totalSupply.sub(amount);
         uint256 totalDebtEnd = totalDebt.sub(amount);
-        Decimal.D256 memory debtRatioEnd = Decimal.ratio(
-            totalDebtEnd,
-            totalSupplyEnd
-        );
+        Decimal.D256 memory debtRatioEnd =
+            Decimal.ratio(totalDebtEnd, totalSupplyEnd);
 
         if (debtRatio.greaterThan(debtRatioUpperBound)) {
             if (debtRatioEnd.greaterThan(debtRatioUpperBound)) {
                 return curve(debtRatioUpperBound);
             }
 
-            Decimal.D256 memory premiumCurve = curveMean(
-                debtRatioEnd,
-                debtRatioUpperBound
-            );
-            Decimal.D256 memory premiumCurveDelta = debtRatioUpperBound.sub(
-                debtRatioEnd
-            );
+            Decimal.D256 memory premiumCurve =
+                curveMean(debtRatioEnd, debtRatioUpperBound);
+            Decimal.D256 memory premiumCurveDelta =
+                debtRatioUpperBound.sub(debtRatioEnd);
             Decimal.D256 memory premiumFlat = curve(debtRatioUpperBound);
-            Decimal.D256 memory premiumFlatDelta = debtRatio.sub(
-                debtRatioUpperBound
-            );
+            Decimal.D256 memory premiumFlatDelta =
+                debtRatio.sub(debtRatioUpperBound);
             return
                 (premiumCurve.mul(premiumCurveDelta))
                     .add(premiumFlat.mul(premiumFlatDelta))

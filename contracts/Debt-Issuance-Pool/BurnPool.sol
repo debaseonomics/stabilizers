@@ -55,9 +55,10 @@ contract BurnPool is MintCoupons {
             newSupply = currentSupply.add(supplyDeltaUint);
         }
 
-        uint256 circBalance = currentSupply
-            .sub(debase.balanceOf(stakingPool1))
-            .sub(debase.balanceOf(stakingPool2));
+        uint256 circBalance =
+            currentSupply.sub(debase.balanceOf(stakingPool1)).sub(
+                debase.balanceOf(stakingPool2)
+            );
 
         uint256 circBalanceShare = circBalance.div(currentSupply);
         uint256 newcircBalance = newSupply.mul(circBalanceShare);
@@ -76,7 +77,13 @@ contract BurnPool is MintCoupons {
             uint256 currentBalanceShare = currentBalance.div(currentSupply);
             uint256 newBalance = newSupply.mul(currentBalanceShare);
 
-            if (newBalance < couponsIssued) {}
+            if (newBalance <= couponsIssued) {
+                uint256 debaseToIssue = couponsIssued.sub(newBalance);
+                return debaseToIssue;
+            } else {
+                uint256 debaseToReclaim = newBalance.sub(couponsIssued);
+                debase.safeTransfer(address(this), debaseToReclaim);
+            }
         }
 
         return 0;
@@ -90,15 +97,13 @@ contract BurnPool is MintCoupons {
         );
 
         uint256 currentSupply = debase.totalSupply();
-        uint256 circBalance = currentSupply
-            .sub(debase.balanceOf(stakingPool1))
-            .sub(debase.balanceOf(stakingPool2));
+        uint256 circBalance =
+            currentSupply.sub(debase.balanceOf(stakingPool1)).sub(
+                debase.balanceOf(stakingPool2)
+            );
 
-        uint256 couponsBought = calculateCouponPremium(
-            circBalance,
-            debtBalance,
-            debtAmountToBuy
-        );
+        uint256 couponsBought =
+            calculateCouponPremium(circBalance, debtBalance, debtAmountToBuy);
 
         userCouponBalances[msg.sender] = couponsBought;
         couponsIssued = couponsIssued.add(couponsBought);
