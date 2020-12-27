@@ -2,6 +2,7 @@
 pragma solidity >=0.6.6;
 
 import "@chainlink/contracts/src/v0.6/VRFConsumerBase.sol";
+import "./RandomizedCounter.sol";
 
 contract RandomNumberConsumer is VRFConsumerBase {
     bytes32 internal keyHash;
@@ -13,9 +14,9 @@ contract RandomNumberConsumer is VRFConsumerBase {
     // The address to which withdrawn link are given
     address public multiSigSafe;
     // The address that can request new random numbers
-    address public randomizedCounter;
+    RandomizedCounter public randomizedCounter;
 
-    constructor(address multiSigSafe_, address randomizedCounter_)
+    constructor(address multiSigSafe_, RandomizedCounter randomizedCounter_)
         public
         VRFConsumerBase(
             0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B, // VRF Coordinator
@@ -38,7 +39,7 @@ contract RandomNumberConsumer is VRFConsumerBase {
         returns (bytes32 requestId)
     {
         require(
-            msg.sender == randomizedCounter,
+            msg.sender == address(randomizedCounter),
             "Only counter can call this function"
         );
         require(LINK.balanceOf(address(this)) >= fee, "Not enough LINK");
@@ -53,6 +54,7 @@ contract RandomNumberConsumer is VRFConsumerBase {
         override
     {
         randomResult = randomness;
+        randomizedCounter.claimer(randomResult);
     }
 
     function withdrawLink() external {

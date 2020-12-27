@@ -93,21 +93,23 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256 normalDistributionDeviation_,
         uint256[100] normalDistribution_
     );
-    event LogCountThreshold(uint256 count_, uint256 index, uint256 threshold_);
     event LogSetRandomNumberConsumer(
         RandomNumberConsumer randomNumberConsumer_
     );
     event LogSetBlockDurationReward(uint256 blockdurationReward_);
-    event LogSetBlockDurationClaims(uint256 blockdurationClaims_);
-
+    event LogStartNewDistribtionCycle(
+        uint256 poolShareAdded_,
+        uint256 rewardRate_,
+        uint256 periodFinish_,
+        uint256 count_,
+        uint256 randomThreshold_
+    );
+    event LogRandomThresold(uint256 randomNumber);
     event LogSetPoolEnabled(bool poolEnabled_);
-    event LogSetRandomNumberConsumerFee(uint256 fee_);
-
     event LogSetEnableUserLpLimit(bool enableUserLpLimit_);
     event LogSetEnablePoolLpLimit(bool enablePoolLpLimit_);
     event LogSetUserLpLimit(uint256 userLpLimit_);
     event LogSetPoolLpLimit(uint256 poolLpLimit_);
-
     event LogRewardsClaimed(uint256 rewardAmount_);
     event LogRewardAdded(uint256 reward);
     event LogRewardRevoked(uint256 precentageRevoked, uint256 amountRevoked);
@@ -128,7 +130,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     uint256 public rewardDistributed;
 
     uint256 public blockDurationReward;
-    uint256 public blockDurationClaims;
 
     //Flag to enable amount of lp that can be staked by a account
     bool public enableUserLpLimit;
@@ -145,6 +146,8 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     // Should revoke reward
     bool public revokeReward;
+
+    uint256 public lastRewardClaimed;
 
     uint256 public revokeRewardDuration;
 
@@ -247,18 +250,6 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         require(blockDurationReward >= 1);
         blockDurationReward = blockDurationReward_;
         emit LogSetBlockDurationReward(blockDurationReward);
-    }
-
-    /**
-     * @notice Function to set reward drop period
-     */
-    function setBlockDurationClaims(uint256 blockDurationClaims_)
-        external
-        onlyOwner
-    {
-        require(blockDurationClaims_ >= 1);
-        blockDurationClaims = blockDurationClaims_;
-        emit LogSetBlockDurationReward(blockDurationClaims);
     }
 
     /**
@@ -395,32 +386,22 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
             if (
                 link.balanceOf(address(randomNumberConsumer)) >=
-                randomNumberConsumer.fee()
+                randomNumberConsumer.fee() &&
+                (beforePeriodFinish || block.timestamp >= periodFinish)
             ) {
-                randomNumberConsumer.getRandomNumber(block.timestamp);
-            }
-
-            if (block.number >= blockDurationClaims) {
                 uint256 rewardToClaim =
                     debasePolicyBalance.mul(rewardPercentage).div(10**18);
 
                 if (debasePolicyBalance >= rewardToClaim) {
+                    lastRewardClaimed = rewardToClaim;
+                    randomNumberConsumer.getRandomNumber(block.timestamp);
+
                     emit LogRewardsClaimed(rewardToClaim);
                     return rewardToClaim;
                 }
             }
         } else if (countInSequence) {
             count = 0;
-
-            if (revokeReward && block.timestamp < periodFinish) {
-                uint256 rewardToRevoke =
-                    debase
-                        .balanceOf(address(this))
-                        .mul(revokeRewardPrecentage)
-                        .div(10**18);
-                debase.safeTransfer(policy, rewardToRevoke);
-                emit LogRewardRevoked(revokeRewardPrecentage, rewardToRevoke);
-            }
 
             if (revokeReward && block.timestamp < periodFinish) {
                 uint256 timeRemaining = periodFinish.sub(block.timestamp);
@@ -448,14 +429,15 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         );
 
         uint256 randomThreshold = normalDistribution[randomNumber.mod(100)];
+        emit LogRandomThresold(randomThreshold);
 
         if (count >= randomThreshold) {
+            startNewDistribtionCycle(randomThreshold);
             count = 0;
-
-            if ((beforePeriodFinish || block.timestamp >= periodFinish)) {
-                startNewDistribtionCycle();
-            }
+        } else {
+            debase.safeTransfer(policy, lastRewardClaimed);
         }
+        lastRewardClaimed = 0;
     }
 
     /**
@@ -550,20 +532,31 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         }
     }
 
-    function startNewDistribtionCycle() internal updateReward(address(0)) {
-        uint256 poolTotalShare =
-            (debase.balanceOf(address(this)).div(debase.totalSupply())).mul(
-                10**18
-            );
+    function startNewDistribtionCycle(uint256 randomThreshold)
+        internal
+        updateReward(address(0))
+    {
+        uint256 newPoolTotalShare =
+            lastRewardClaimed.div(debase.totalSupply()).mul(10**18);
 
         if (block.timestamp >= periodFinish) {
-            rewardRate = poolTotalShare.div(blockDurationReward);
+            rewardRate = newPoolTotalShare.div(blockDurationReward);
         } else {
             uint256 remaining = periodFinish.sub(block.timestamp);
             uint256 leftover = remaining.mul(rewardRate);
-            rewardRate = poolTotalShare.add(leftover).div(blockDurationReward);
+            rewardRate = newPoolTotalShare.add(leftover).div(
+                blockDurationReward
+            );
         }
         lastUpdateBlock = block.timestamp;
         periodFinish = block.timestamp.add(blockDurationReward);
+
+        emit LogStartNewDistribtionCycle(
+            newPoolTotalShare,
+            rewardRate,
+            periodFinish,
+            count,
+            randomThreshold
+        );
     }
 }
