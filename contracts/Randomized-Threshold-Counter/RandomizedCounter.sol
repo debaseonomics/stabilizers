@@ -97,7 +97,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     event LogSetRandomNumberConsumer(
         RandomNumberConsumer randomNumberConsumer_
     );
-    event LogSetDuration(uint256 duration_);
+    event LogSetBlockDurationReward(uint256 blockdurationReward_);
+    event LogSetBlockDurationClaims(uint256 blockdurationClaims_);
+
     event LogSetPoolEnabled(bool poolEnabled_);
     event LogSetRandomNumberConsumerFee(uint256 fee_);
 
@@ -106,11 +108,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     event LogSetUserLpLimit(uint256 userLpLimit_);
     event LogSetPoolLpLimit(uint256 poolLpLimit_);
 
-    event LogCountThresholdHit(
-        uint256 rewardAmount_,
-        uint256 count_,
-        uint256 randomThreshold
-    );
+    event LogRewardsClaimed(uint256 rewardAmount_);
     event LogRewardAdded(uint256 reward);
     event LogRewardRevoked(uint256 precentageRevoked, uint256 amountRevoked);
     event LogStaked(address indexed user, uint256 amount);
@@ -118,17 +116,19 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     event LogRewardPaid(address indexed user, uint256 reward);
     event LogManualPoolStarted(uint256 startedAt);
 
-    IERC20 public rewardToken;
+    IERC20 public debase;
     address public policy;
-    uint256 public duration;
     bool public poolEnabled;
 
     uint256 public periodFinish;
     uint256 public rewardRate;
-    uint256 public lastUpdateTime;
+    uint256 public lastUpdateBlock;
     uint256 public rewardPerTokenStored;
     uint256 public rewardPercentage;
     uint256 public rewardDistributed;
+
+    uint256 public blockDurationReward;
+    uint256 public blockDurationClaims;
 
     //Flag to enable amount of lp that can be staked by a account
     bool public enableUserLpLimit;
@@ -145,6 +145,8 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     // Should revoke reward
     bool public revokeReward;
+
+    uint256 public revokeRewardDuration;
 
     // The count of s hitting their target
     uint256 public count;
@@ -180,7 +182,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
 
     modifier updateReward(address account) {
         rewardPerTokenStored = rewardPerToken();
-        lastUpdateTime = lastTimeRewardApplicable();
+        lastUpdateBlock = lastBlockRewardApplicable();
         if (account != address(0)) {
             rewards[account] = earned(account);
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
@@ -238,10 +240,25 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
     /**
      * @notice Function to set reward drop period
      */
-    function setDuration(uint256 duration_) external onlyOwner {
-        require(duration >= 1);
-        duration = duration_;
-        emit LogSetDuration(duration);
+    function setBlockDurationReward(uint256 blockDurationReward_)
+        external
+        onlyOwner
+    {
+        require(blockDurationReward >= 1);
+        blockDurationReward = blockDurationReward_;
+        emit LogSetBlockDurationReward(blockDurationReward);
+    }
+
+    /**
+     * @notice Function to set reward drop period
+     */
+    function setBlockDurationClaims(uint256 blockDurationClaims_)
+        external
+        onlyOwner
+    {
+        require(blockDurationClaims_ >= 1);
+        blockDurationClaims = blockDurationClaims_;
+        emit LogSetBlockDurationReward(blockDurationClaims);
     }
 
     /**
@@ -322,19 +339,14 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         );
     }
 
-    function setRandomNumberConsumerFee(uint256 fee_) external onlyOwner {
-        randomNumberConsumer.setFee(fee_);
-        emit LogSetRandomNumberConsumerFee(fee_);
-    }
-
     function initialize(
-        address rewardToken_,
+        address debase_,
         address pairToken_,
         address policy_,
         address randomNumberConsumer_,
         address link_,
         uint256 rewardPercentage_,
-        uint256 duration_,
+        uint256 blockDurationReward_,
         uint256 userLpLimit_,
         uint256 poolLpLimit_,
         uint256 revokeRewardPrecentage_,
@@ -343,13 +355,13 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256[100] memory normalDistribution_
     ) public initializer {
         setStakeToken(pairToken_);
-        rewardToken = IERC20(rewardToken_);
+        debase = IERC20(debase_);
         link = IERC20(link_);
         randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
         policy = policy_;
         count = 0;
 
-        duration = duration_;
+        blockDurationReward = blockDurationReward_;
         userLpLimit = userLpLimit_;
         poolLpLimit = poolLpLimit_;
         rewardPercentage = rewardPercentage_;
@@ -380,78 +392,82 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         if (supplyDelta_ > 0) {
             count = count.add(1);
 
-            uint256 randomThreshold;
-            bool isValid;
-            (randomThreshold, isValid) = getOffChainRandomThreshold();
+            // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
+            if (
+                link.balanceOf(address(randomNumberConsumer)) >=
+                randomNumberConsumer.fee()
+            ) {
+                randomNumberConsumer.getRandomNumber(block.timestamp);
+            }
 
-            if (count >= randomThreshold && isValid) {
-                count = 0;
+            if (block.number >= blockDurationClaims) {
+                uint256 rewardToClaim =
+                    debasePolicyBalance.mul(rewardPercentage).div(10**18);
 
-                // Rewards given when stabilizer fund balance is greater than requested amount by the pool and if rewards should be given
-                // before or after previous distribution period has finished.
-                uint256 rewardToClaim = debasePolicyBalance
-                    .mul(rewardPercentage)
-                    .div(10**18);
-
-                if (
-                    debasePolicyBalance >= rewardToClaim &&
-                    (beforePeriodFinish || block.timestamp >= periodFinish)
-                ) {
-                    notifyRewardAmount(true);
-                    emit LogCountThresholdHit(
-                        rewardToClaim,
-                        count,
-                        randomThreshold
-                    );
+                if (debasePolicyBalance >= rewardToClaim) {
+                    emit LogRewardsClaimed(rewardToClaim);
                     return rewardToClaim;
                 }
             }
         } else if (countInSequence) {
             count = 0;
+
             if (revokeReward && block.timestamp < periodFinish) {
-                notifyRewardAmount(false);
-                uint256 rewardToRevoke = rewardToken
-                    .balanceOf(address(this))
-                    .mul(revokeRewardPrecentage)
-                    .div(10**18);
-                rewardToken.safeTransfer(policy, rewardToRevoke);
+                uint256 rewardToRevoke =
+                    debase
+                        .balanceOf(address(this))
+                        .mul(revokeRewardPrecentage)
+                        .div(10**18);
+                debase.safeTransfer(policy, rewardToRevoke);
                 emit LogRewardRevoked(revokeRewardPrecentage, rewardToRevoke);
+            }
+
+            if (revokeReward && block.timestamp < periodFinish) {
+                uint256 timeRemaining = periodFinish.sub(block.timestamp);
+                // Rewards will only be revoked from period after the current period so unclaimed rewards arent taken away.
+                if (timeRemaining >= revokeRewardDuration) {
+                    //Set reward distribution period back
+                    periodFinish = periodFinish.sub(revokeRewardDuration);
+                    //Calculate reward to rewark by amount the reward moved back
+                    uint256 rewardToRevoke =
+                        rewardRate.mul(revokeRewardDuration);
+                    lastUpdateBlock = block.timestamp;
+
+                    debase.safeTransfer(policy, rewardToRevoke);
+                    emit LogRewardRevoked(revokeRewardDuration, rewardToRevoke);
+                }
             }
         }
         return 0;
     }
 
-    /**
-     * @notice Function that requests a random number from chainlink and uses it to get a random threshold number from the normal distribution array
-     */
-    function getOffChainRandomThreshold() internal returns (uint256, bool) {
-        // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
-        if (
-            link.balanceOf(address(randomNumberConsumer)) >=
-            randomNumberConsumer.fee()
-        ) {
-            randomNumberConsumer.getRandomNumber(block.timestamp);
-        } else {
-            return (0, false);
-        }
-        //Request chain link random number
+    function claimer(uint256 randomNumber) external {
+        require(
+            msg.sender == address(randomNumberConsumer),
+            "Only debase policy contract can call this"
+        );
 
-        uint256 randomNumber = normalDistribution[randomNumberConsumer
-            .randomResult()
-            .mod(100)];
-        return (randomNumber, true);
+        uint256 randomThreshold = normalDistribution[randomNumber.mod(100)];
+
+        if (count >= randomThreshold) {
+            count = 0;
+
+            if ((beforePeriodFinish || block.timestamp >= periodFinish)) {
+                startNewDistribtionCycle();
+            }
+        }
     }
 
     /**
      * @notice Function allows for emergency withdrawal of all reward tokens back into stabilizer fund
      */
     function emergencyWithdraw() external onlyOwner {
-        rewardToken.safeTransfer(policy, rewardToken.balanceOf(address(this)));
+        debase.safeTransfer(policy, debase.balanceOf(address(this)));
         emit LogEmergencyWithdraw(block.timestamp);
     }
 
-    function lastTimeRewardApplicable() public view returns (uint256) {
-        return Math.min(block.timestamp, periodFinish);
+    function lastBlockRewardApplicable() internal view returns (uint256) {
+        return Math.min(block.number, periodFinish);
     }
 
     function rewardPerToken() public view returns (uint256) {
@@ -460,9 +476,9 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         }
         return
             rewardPerTokenStored.add(
-                lastTimeRewardApplicable()
-                    .sub(lastUpdateTime)
-                    .mul(rewardToken.balanceOf(address(this)).div(duration))
+                lastBlockRewardApplicable()
+                    .sub(lastUpdateBlock)
+                    .mul(rewardRate)
                     .mul(10**18)
                     .div(totalSupply())
             );
@@ -488,9 +504,7 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
             "Caller must not be a contract"
         );
         require(amount > 0, "Cannot stake 0");
-        if (enableUserLpLimit) {
-            require(amount <= userLpLimit, "Can't stake more than lp limit");
-        }
+
         if (enablePoolLpLimit) {
             uint256 lpBalance = totalSupply();
             require(
@@ -498,6 +512,14 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
                 "Can't stake pool lp limit reached"
             );
         }
+        if (enableUserLpLimit) {
+            uint256 userLpBalance = balanceOf(msg.sender);
+            require(
+                userLpBalance.add(amount) <= userLpLimit,
+                "Can't stake more than lp limit"
+            );
+        }
+
         super.stake(amount);
         emit LogStaked(msg.sender, amount);
     }
@@ -517,19 +539,31 @@ contract RandomizedCounter is Ownable, Initializable, LPTokenWrapper {
         uint256 reward = earned(msg.sender);
         if (reward > 0) {
             rewards[msg.sender] = 0;
-            rewardToken.safeTransfer(msg.sender, reward);
-            emit LogRewardPaid(msg.sender, reward);
+
+            uint256 rewardToClaim =
+                debase.totalSupply().mul(reward).div(10**18);
+
+            debase.safeTransfer(msg.sender, rewardToClaim);
+
+            emit LogRewardPaid(msg.sender, rewardToClaim);
             rewardDistributed = rewardDistributed.add(reward);
         }
     }
 
-    function notifyRewardAmount(bool updatePeriod)
-        internal
-        updateReward(address(0))
-    {
-        lastUpdateTime = block.timestamp;
-        if (updatePeriod) {
-            periodFinish = block.timestamp.add(duration);
+    function startNewDistribtionCycle() internal updateReward(address(0)) {
+        uint256 poolTotalShare =
+            (debase.balanceOf(address(this)).div(debase.totalSupply())).mul(
+                10**18
+            );
+
+        if (block.timestamp >= periodFinish) {
+            rewardRate = poolTotalShare.div(blockDurationReward);
+        } else {
+            uint256 remaining = periodFinish.sub(block.timestamp);
+            uint256 leftover = remaining.mul(rewardRate);
+            rewardRate = poolTotalShare.add(leftover).div(blockDurationReward);
         }
+        lastUpdateBlock = block.timestamp;
+        periodFinish = block.timestamp.add(blockDurationReward);
     }
 }

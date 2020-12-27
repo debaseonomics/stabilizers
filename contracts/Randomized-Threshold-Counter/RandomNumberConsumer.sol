@@ -8,40 +8,26 @@ contract RandomNumberConsumer is VRFConsumerBase {
     uint256 public fee;
     address public VRFCoordinator;
 
+    uint256 public randomResult;
+
     // The address to which withdrawn link are given
     address public multiSigSafe;
     // The address that can request new random numbers
     address public randomizedCounter;
 
-    uint256 public randomResult;
-
-    constructor(
-        address VRFCoordinator_,
-        bytes32 keyhash_,
-        address LINK,
-        address multiSigSafe_,
-        address randomizedCounter_,
-        uint256 fee_
-    )
+    constructor(address multiSigSafe_, address randomizedCounter_)
         public
         VRFConsumerBase(
-            VRFCoordinator_, // VRF Coordinator
-            LINK // LINK Token
+            0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B, // VRF Coordinator
+            0x01BE23585060835E02B77ef475b0Cc51aA1e0709 // LINK Token
         )
     {
-        VRFCoordinator = VRFCoordinator_;
-        keyHash = keyhash_;
-        fee = fee_;
         multiSigSafe = multiSigSafe_;
         randomizedCounter = randomizedCounter_;
-    }
 
-    function setFee(uint256 fee_) external {
-        require(
-            msg.sender == randomizedCounter,
-            "Only counter can call this function"
-        );
-        fee = fee_;
+        VRFCoordinator = 0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B;
+        keyHash = 0x2ed0feb3e7fd2022120aa84fab1945545a9f2ffc9076fd6156fa96eaff4c1311;
+        fee = 0.1 * 10**18;
     }
 
     /**
