@@ -12,6 +12,7 @@ contract Parameters is Ownable {
     uint256 public couponExpiration = 90;
     uint256 public debtRatioCap = 35e16; // 35%
     uint256 public couponRewardClaimPercentage;
+    uint256 public negativeRebaseEpoch;
 
     function setDebtRatioCap(uint256 debtRatioCap_) external onlyOwner {
         debtRatioCap = debtRatioCap_;

@@ -18,7 +18,7 @@ contract BurnPool is MintCoupons {
 
     uint256 public rewardClaimPercentage;
 
-    mapping(address => uint256) userCouponBalances;
+    mapping(address => mapping(uint256 => uint256)) userCouponBalances;
     uint256 public couponsIssued;
     uint256 public couponsClaimed;
 
@@ -105,13 +105,10 @@ contract BurnPool is MintCoupons {
         uint256 couponsBought =
             calculateCouponPremium(circBalance, debtBalance, debtAmountToBuy);
 
-        userCouponBalances[msg.sender] = couponsBought;
+        userCouponBalances[msg.sender][negativeRebaseEpoch] = couponsBought;
         couponsIssued = couponsIssued.add(couponsBought);
 
-        debtBalance = debtBalance.sub(
-            debtAmountToBuy,
-            "Can't buy more debt that issued"
-        );
+        debtBalance = debtBalance.sub(debtAmountToBuy);
 
         debase.safeTransfer(address(this), debtAmountToBuy);
     }

@@ -2,29 +2,40 @@ import { ethers } from 'hardhat';
 import { ContractTransaction, Signer } from 'ethers';
 import { expect } from 'chai';
 
-import RandomizedCounterArtifact from '../../artifacts/contracts/Randomized-Threshold-Counter/RandomizedCounter.sol/RandomizedCounter.json';
-import TokenArtifact from '../../artifacts/contracts/Mock/Token.sol/Token.json';
+import IncentivizerArtifact from '../../artifacts/contracts/Degov-Eth-Incentivizer/Incentivizer.sol/Incentivizer.json';
+import DebaseArtifact from '../../artifacts/contracts/Degov-Eth-Incentivizer/Mock/Debase.sol/Debase.json';
+import TokenArtifact from '../../artifacts/contracts/Degov-Eth-Incentivizer/Mock/Token.sol/Token.json';
 
-import { RandomizedCounterFactory } from '../../typechain/RandomizedCounterFactory';
+import { IncentivizerFactory } from '../../typechain/IncentivizerFactory';
 import { TokenFactory } from '../../typechain/TokenFactory';
+import { DebaseFactory } from '../../typechain/DebaseFactory';
+
 import { Token } from '../../typechain/Token';
-import { RandomizedCounter } from '../../typechain/RandomizedCounter';
+import { Incentivizer } from '../../typechain/Incentivizer';
+import { Debase } from '../../typechain/Debase';
 
-import { parseEther } from 'ethers/lib/utils';
+import { parseEther, parseUnits } from 'ethers/lib/utils';
 
-describe('Randomized Threshold Counter', function() {
+describe('Degov/Eth Incentivizer', function() {
 	let accounts: Signer[];
-	let randomizedCounterFactory: RandomizedCounterFactory;
+	let incentivizerFactory: IncentivizerFactory;
 	let tokenFactory: TokenFactory;
+	let debaseFactory: DebaseFactory;
 
 	before(async function() {
 		accounts = await ethers.getSigners();
 
-		randomizedCounterFactory = (new ethers.ContractFactory(
-			RandomizedCounterArtifact.abi,
-			RandomizedCounterArtifact.bytecode,
+		incentivizerFactory = (new ethers.ContractFactory(
+			IncentivizerArtifact.abi,
+			IncentivizerArtifact.bytecode,
 			accounts[0]
-		) as any) as RandomizedCounterFactory;
+		) as any) as IncentivizerFactory;
+
+		debaseFactory = (new ethers.ContractFactory(
+			DebaseArtifact.abi,
+			DebaseArtifact.bytecode,
+			accounts[0]
+		) as any) as DebaseFactory;
 
 		tokenFactory = (new ethers.ContractFactory(
 			TokenArtifact.abi,
@@ -34,504 +45,450 @@ describe('Randomized Threshold Counter', function() {
 	});
 
 	describe('Deploy and Initialize', function() {
-		let randomizedCounter: RandomizedCounter;
-		let debase: Token;
-		const dai = '0xc7AD46e0b8a400Bb3C915120d284AafbA8fc4735';
-		const policy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
-		const rewardAmount = parseEther('100');
+		let incentivizer: Incentivizer;
+		let degovLP: Token;
+		let debase: Debase;
+		let address: string;
+
 		const duration = 4 * 24 * 60 * 60;
+		const userLpLimit = parseEther('10');
+		const userLpEnable = true;
+		const poolLpLimit = parseEther('100');
+		const poolLpEnable = true;
+		const rewardPercentage = parseUnits('1', 17);
 
 		before(async function() {
-			debase = await tokenFactory.deploy('DEBASE', 'DEBASE');
-			randomizedCounter = await randomizedCounterFactory.deploy();
+			address = await accounts[0].getAddress();
 
-			const tx = await randomizedCounter.initialize(
-				'Random Counter',
+			debase = await debaseFactory.deploy();
+			degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+
+			incentivizer = await incentivizerFactory.deploy(
 				debase.address,
-				dai,
-				policy,
-				rewardAmount,
-				duration
+				degovLP.address,
+				address,
+				rewardPercentage,
+				duration,
+				userLpEnable,
+				userLpLimit,
+				poolLpEnable,
+				poolLpLimit
 			);
-
-			tx.wait(1);
 		});
 
-		describe('Initial settings', function() {
-			it('Counter reward token should be debase', async function() {
-				expect(await randomizedCounter.rewardToken()).eq(debase.address);
+		describe('Initial settings check', function() {
+			it('Reward token should be debase', async function() {
+				expect(await incentivizer.debase()).eq(debase.address);
 			});
-
-			it('Counter pair token should be dai', async function() {
-				expect(await randomizedCounter.y()).eq(dai);
+			it('Pair token should be degov lp', async function() {
+				expect(await incentivizer.y()).eq(degovLP.address);
 			});
-
-			it('Counter policy should be policy contract', async function() {
-				expect(await randomizedCounter.policy()).eq(policy);
+			it('Policy should be policy contract', async function() {
+				expect(await incentivizer.policy()).eq(address);
 			});
-
-			it('Counter reward amount should be correct', async function() {
-				expect(await randomizedCounter.rewardAmount()).eq(rewardAmount);
+			it('Duration should be correct', async function() {
+				expect(await incentivizer.blockDuration()).eq(duration);
 			});
-
-			it('Counter duration should be correct', async function() {
-				expect(await randomizedCounter.duration()).eq(duration);
+			it('eward Percentage should be correct', async function() {
+				expect(await incentivizer.rewardPercentage()).eq(rewardPercentage);
 			});
-
-			it('Counter pool should be disabled', async function() {
-				expect(await randomizedCounter.poolEnabled()).false;
+			it('Pool should be  disabled', async function() {
+				expect(await incentivizer.poolEnabled()).false;
 			});
-
-			it('Counter count in sequence should be true', async function() {
-				expect(await randomizedCounter.countInSequence()).true;
+			it('User lp limit should be enabled', async function() {
+				expect(await incentivizer.enableUserLpLimit()).eq(userLpEnable);
 			});
-
-			it('Counter initial count should be zero', async function() {
-				expect(await randomizedCounter.count()).eq(0);
+			it('User lp limit should be correct', async function() {
+				expect(await incentivizer.userLpLimit()).eq(userLpLimit);
 			});
-
-			it('Counter revoke reward should be disabled', async function() {
-				expect(await randomizedCounter.revokeReward()).false;
+			it('Pool lp limit should be enabled', async function() {
+				expect(await incentivizer.enablePoolLpLimit()).eq(poolLpEnable);
 			});
-
-			it('Counter reward before period finished be disabled', async function() {
-				expect(await randomizedCounter.beforePeriodFinish()).false;
+			it('Pool lp limit should be correct', async function() {
+				expect(await incentivizer.poolLpLimit()).eq(poolLpLimit);
 			});
 		});
 	});
 
-	describe('Check Stabilizer And Get Reward Function', function() {
-		let randomizedCounter: RandomizedCounter;
-		let debase: Token;
-		let result: ContractTransaction;
-		let countBefore: any;
-		let totalRewardsBefore: any;
-		let periodFinishBefore: any;
-		let account: string;
+	describe('Basic Operation', () => {
+		let incentivizer: Incentivizer;
+		let degovLP: Token;
+		let debase: Debase;
+		let address: string;
 
-		const dai = '0xc7AD46e0b8a400Bb3C915120d284AafbA8fc4735';
-		const policy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
-		const rewardAmount = parseEther('10');
-		const duration = 4 * 24 * 60 * 60;
+		let duration = 10;
+		const userLpLimit = parseEther('10');
+		const userLpEnable = true;
+		const poolLpLimit = parseEther('100');
+		const poolLpEnable = true;
+		const rewardPercentage = parseUnits('1', 17);
 
-		describe('When supply delta is less than or equal to zero', function() {
+		describe('When Pool is disabled', () => {
 			before(async function() {
-				randomizedCounter = await randomizedCounterFactory.deploy();
-				debase = await tokenFactory.deploy('DEBASE', 'DEBASE');
-				account = await accounts[0].getAddress();
-				let result = await randomizedCounter.initialize(
-					'Random Counter',
+				address = await accounts[0].getAddress();
+
+				debase = await debaseFactory.deploy();
+				degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+
+				incentivizer = await incentivizerFactory.deploy(
 					debase.address,
-					dai,
-					account,
-					rewardAmount,
-					duration
+					degovLP.address,
+					address,
+					rewardPercentage,
+					duration,
+					userLpEnable,
+					userLpLimit,
+					poolLpEnable,
+					poolLpLimit
 				);
-				await result.wait(1);
-				countBefore = await randomizedCounter.count();
-				totalRewardsBefore = await randomizedCounter.totalRewards();
-				let tx = await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('1'));
-				await tx.wait(1);
 			});
-			it('Pool period finish should not change', async function() {
-				expect(await randomizedCounter.periodFinish()).eq(0);
+
+			it('Should not be able to stake', async function() {
+				await expect(incentivizer.stake(parseEther('10'))).to.be.reverted;
 			});
-			it('Count should not increase', async function() {
-				expect(await randomizedCounter.count()).eq(countBefore);
+			it('Should not be able to withdraw', async function() {
+				await expect(incentivizer.withdraw(parseEther('10'))).to.be.reverted;
 			});
-			it('Total rewards should not decrease', async function() {
-				expect(await randomizedCounter.totalRewards()).eq(totalRewardsBefore);
+		});
+		describe('When Pool is enabled', () => {
+			describe('When pool is not rewarded balance', () => {
+				before(async function() {
+					address = await accounts[0].getAddress();
+
+					debase = await debaseFactory.deploy();
+					degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+
+					incentivizer = await incentivizerFactory.deploy(
+						debase.address,
+						degovLP.address,
+						address,
+						rewardPercentage,
+						duration,
+						userLpEnable,
+						userLpLimit,
+						poolLpEnable,
+						poolLpLimit
+					);
+
+					await incentivizer.setPoolEnabled(true);
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+				});
+				it('Should be enabled', async function() {
+					expect(await incentivizer.poolEnabled()).to.be.true;
+				});
+				it('Should be able to stake', async function() {
+					expect(await incentivizer.stake(parseEther('10')));
+				});
+				it('Should have correct stake balance', async function() {
+					expect(await incentivizer.balanceOf(address)).to.eq(parseEther('10'));
+				});
+				it('Should be able to withdraw', async function() {
+					expect(await incentivizer.withdraw(parseEther('10')));
+				});
+				it('Should not earn rewards', async function() {
+					expect(await incentivizer.earned(address)).eq(0);
+				});
+			});
+
+			describe('When pool is rewarded balance', () => {
+				describe('For a single user', () => {
+					describe('Simple Usage', () => {
+						before(async function() {
+							address = await accounts[0].getAddress();
+
+							debase = await debaseFactory.deploy();
+							degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+
+							incentivizer = await incentivizerFactory.deploy(
+								debase.address,
+								degovLP.address,
+								address,
+								rewardPercentage,
+								duration,
+								userLpEnable,
+								userLpLimit,
+								poolLpEnable,
+								poolLpLimit
+							);
+
+							await incentivizer.setPoolEnabled(true);
+							await degovLP.approve(incentivizer.address, parseEther('10'));
+						});
+						it('Should claim reward with correct amount', async function() {
+							await expect(incentivizer.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'))).to
+								.emit(incentivizer, 'LogRewardIssued')
+								.withArgs(parseEther('100').mul(rewardPercentage).div(parseEther('1')), 29);
+						});
+						it('Its reward Rate should be correct', async function() {
+							await debase.transfer(
+								incentivizer.address,
+								parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+							);
+							let expectedRewardRate = (await debase.balanceOf(incentivizer.address))
+								.mul(parseEther('1'))
+								.div(await debase.totalSupply())
+								.div(duration);
+
+							expect(await incentivizer.rewardRate()).to.eq(expectedRewardRate);
+						});
+						it('Should be able to stake', async function() {
+							expect(await incentivizer.stake(parseEther('10')));
+						});
+						it('Should be able to withdraw', async function() {
+							expect(await incentivizer.withdraw(parseEther('10')));
+						});
+						it('Should earn rewards', async function() {
+							expect(await incentivizer.earned(address)).not.eq(0);
+						});
+						it('Should emit a transfer event when rewards are claimed', async function() {
+							await expect(incentivizer.getReward()).to.emit(debase, 'Transfer');
+						});
+					});
+
+					describe('Claiming Maximum Balance', () => {
+						before(async function() {
+							address = await accounts[0].getAddress();
+
+							debase = await debaseFactory.deploy();
+							degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+
+							incentivizer = await incentivizerFactory.deploy(
+								debase.address,
+								degovLP.address,
+								address,
+								rewardPercentage,
+								2,
+								userLpEnable,
+								userLpLimit,
+								poolLpEnable,
+								poolLpLimit
+							);
+
+							await incentivizer.setPoolEnabled(true);
+							await degovLP.approve(incentivizer.address, parseEther('10'));
+							await incentivizer.stake(parseEther('10'));
+							await incentivizer.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'));
+							await debase.transfer(
+								incentivizer.address,
+								parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+							);
+							await degovLP.approve(incentivizer.address, parseEther('10'));
+
+							await degovLP.approve(incentivizer.address, parseEther('10'));
+
+							await degovLP.approve(incentivizer.address, parseEther('10'));
+						});
+						it('Should have claimable % equal to % of debase sent after reward period has elapsed', async function() {
+							let rewardRate = (await incentivizer.rewardRate()).mul(2);
+							expect(await incentivizer.earned(address)).eq(rewardRate);
+						});
+						it('Should transfer correct amount of debase on get reward', async function() {
+							await expect(incentivizer.getReward()).to
+								.emit(incentivizer, 'LogRewardPaid')
+								.withArgs(address, parseEther('100').mul(rewardPercentage).div(parseEther('1')));
+						});
+					});
+				});
+			});
+		});
+	});
+	describe('Operation Under Rebases', () => {
+		let incentivizer: Incentivizer;
+		let degovLP: Token;
+		let debase: Debase;
+		let address: string;
+
+		let duration = 10;
+		let rewardRateBefore: any;
+		const userLpLimit = parseEther('10');
+		const userLpEnable = true;
+		const poolLpLimit = parseEther('100');
+		const poolLpEnable = true;
+		const rewardPercentage = parseUnits('1', 17);
+
+		describe('Simple Operation', () => {
+			describe('Positive Rebase', () => {
+				before(async function() {
+					address = await accounts[0].getAddress();
+
+					debase = await debaseFactory.deploy();
+					degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+
+					incentivizer = await incentivizerFactory.deploy(
+						debase.address,
+						degovLP.address,
+						address,
+						rewardPercentage,
+						duration,
+						userLpEnable,
+						userLpLimit,
+						poolLpEnable,
+						poolLpLimit
+					);
+
+					await incentivizer.setPoolEnabled(true);
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+					await incentivizer.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'));
+					await debase.transfer(
+						incentivizer.address,
+						parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+					);
+					rewardRateBefore = await incentivizer.rewardRate();
+					await debase.rebase(1, parseEther('10000'));
+				});
+
+				it('Its reward Rate should not change after rebase', async function() {
+					expect(await incentivizer.rewardRate()).to.eq(rewardRateBefore);
+				});
+				it('Should be able to stake', async function() {
+					expect(await incentivizer.stake(parseEther('10')));
+				});
+				it('Should be able to withdraw', async function() {
+					expect(await incentivizer.withdraw(parseEther('10')));
+				});
+				it('Should earn rewards', async function() {
+					expect(await incentivizer.earned(address)).not.eq(0);
+				});
+				it('Should emit a transfer event when rewards are claimed', async function() {
+					await expect(incentivizer.getReward()).to.emit(debase, 'Transfer');
+				});
+			});
+			describe('Negative Rebase', () => {
+				before(async function() {
+					address = await accounts[0].getAddress();
+
+					debase = await debaseFactory.deploy();
+					degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+
+					incentivizer = await incentivizerFactory.deploy(
+						debase.address,
+						degovLP.address,
+						address,
+						rewardPercentage,
+						duration,
+						userLpEnable,
+						userLpLimit,
+						poolLpEnable,
+						poolLpLimit
+					);
+
+					await incentivizer.setPoolEnabled(true);
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+					await incentivizer.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'));
+					await debase.transfer(
+						incentivizer.address,
+						parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+					);
+					rewardRateBefore = await incentivizer.rewardRate();
+					await debase.rebase(1, parseEther('10000').mul(-1));
+				});
+				it('Its reward Rate should not change after rebase', async function() {
+					expect(await incentivizer.rewardRate()).to.eq(rewardRateBefore);
+				});
+				it('Should be able to stake', async function() {
+					expect(await incentivizer.stake(parseEther('10')));
+				});
+				it('Should be able to withdraw', async function() {
+					expect(await incentivizer.withdraw(parseEther('10')));
+				});
+				it('Should earn rewards', async function() {
+					expect(await incentivizer.earned(address)).not.eq(0);
+				});
+				it('Should emit a transfer event when rewards are claimed', async function() {
+					await expect(incentivizer.getReward()).to.emit(debase, 'Transfer');
+				});
 			});
 		});
 
-		describe('When supply delta is greater than zero', function() {
-			describe('For single transaction', function() {
+		describe('Claim maximum Balance', () => {
+			describe('Positive Rebase', () => {
 				before(async function() {
-					randomizedCounter = await randomizedCounterFactory.deploy();
-					account = await accounts[0].getAddress();
-					let result = await randomizedCounter.initialize(
-						'Random Counter',
+					address = await accounts[0].getAddress();
+
+					debase = await debaseFactory.deploy();
+					degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+
+					incentivizer = await incentivizerFactory.deploy(
 						debase.address,
-						dai,
-						account,
-						rewardAmount,
-						duration
+						degovLP.address,
+						address,
+						rewardPercentage,
+						2,
+						userLpEnable,
+						userLpLimit,
+						poolLpEnable,
+						poolLpLimit
 					);
-					await result.wait(1);
-					countBefore = await randomizedCounter.count();
-					totalRewardsBefore = await randomizedCounter.totalRewards();
-					let tx = await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('1'));
-					await tx.wait(1);
-				});
-				it('Pool period finish should not change', async function() {
-					expect(await randomizedCounter.periodFinish()).eq(0);
-				});
-				it('Count should not increase', async function() {
-					expect(await randomizedCounter.count()).eq(countBefore);
-				});
-				it('Total rewards should not decrease', async function() {
-					expect(await randomizedCounter.totalRewards()).eq(totalRewardsBefore);
-				});
-			});
 
-			describe('Sequence counter check', () => {
-				describe('Sequence flag enabled', () => {
-					before(async function() {
-						randomizedCounter = await randomizedCounterFactory.deploy();
-						account = await accounts[0].getAddress();
-						let result = await randomizedCounter.initialize(
-							'Random Counter',
-							debase.address,
-							dai,
-							account,
-							rewardAmount,
-							duration
-						);
-						await result.wait(1);
-						countBefore = await randomizedCounter.count();
-						totalRewardsBefore = await randomizedCounter.totalRewards();
-						let tx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						await tx.wait(1);
-					});
-					it('Count in sequence flag should be true', async function() {
-						expect(await randomizedCounter.countInSequence()).true;
-					});
-					it('Count should be 1 when supply delta is greater than zero', async function() {
-						expect(await randomizedCounter.count()).eq(1);
-					});
-					it('Count should reset to 0 when supply delta <= zero', async function() {
-						let tx = await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('1'));
-						await tx.wait(1);
-						expect(await randomizedCounter.count()).eq(0);
-					});
+					await incentivizer.setPoolEnabled(true);
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+					await incentivizer.stake(parseEther('10'));
+					await incentivizer.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'));
+					await debase.transfer(
+						incentivizer.address,
+						parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+					);
+					rewardRateBefore = await incentivizer.rewardRate();
+					await debase.rebase(1, parseEther('10000'));
+
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+
+					await degovLP.approve(incentivizer.address, parseEther('10'));
 				});
-				describe('Sequence flag disabled', () => {
-					before(async function() {
-						randomizedCounter = await randomizedCounterFactory.deploy();
-						account = await accounts[0].getAddress();
-						let result = await randomizedCounter.initialize(
-							'Random Counter',
-							debase.address,
-							dai,
-							account,
-							rewardAmount,
-							duration
-						);
-						await result.wait(1);
-						countBefore = await randomizedCounter.count();
-						totalRewardsBefore = await randomizedCounter.totalRewards();
-						let tx = await randomizedCounter.setCountInSequence(false);
-						await tx.wait(1);
-						tx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						await tx.wait(1);
-					});
-					it('Count in sequence flag should be true', async function() {
-						expect(await randomizedCounter.countInSequence()).false;
-					});
-					it('Count should be 1 when supply delta is greater than zero', async function() {
-						expect(await randomizedCounter.count()).eq(1);
-					});
-					it('Count should be 1 when supply delta <= zero', async function() {
-						let tx = await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('1'));
-						await tx.wait(1);
-						expect(await randomizedCounter.count()).eq(1);
-					});
+				it('Should have claimable % equal to % of debase sent after reward period has elapsed', async function() {
+					let totalReward = rewardRateBefore.mul(2);
+					expect(await incentivizer.earned(address)).eq(totalReward);
+				});
+				it('Pool balance should be zero after get reward', async function() {
+					await incentivizer.getReward();
+					expect(await debase.balanceOf(incentivizer.address)).eq(0);
 				});
 			});
+			describe('Negative Rebase', () => {
+				before(async function() {
+					address = await accounts[0].getAddress();
 
-			describe('For normal mean of 8 and div 0', function() {
-				describe('For 8 function calls and stabilizer balance less request amount', () => {
-					before(async function() {
-						randomizedCounter = await randomizedCounterFactory.deploy();
+					debase = await debaseFactory.deploy();
+					degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
 
-						account = await accounts[0].getAddress();
-						let result = await randomizedCounter.initialize(
-							'Random Counter',
-							debase.address,
-							dai,
-							account,
-							rewardAmount,
-							duration
-						);
-						await result.wait(1);
-						countBefore = await randomizedCounter.count();
-						totalRewardsBefore = await randomizedCounter.totalRewards();
+					incentivizer = await incentivizerFactory.deploy(
+						debase.address,
+						degovLP.address,
+						address,
+						rewardPercentage,
+						2,
+						userLpEnable,
+						userLpLimit,
+						poolLpEnable,
+						poolLpLimit
+					);
 
-						//prettier-ignore
-						await randomizedCounter.setNormalDistribution(8,0,[8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])
-						let transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1'));
-						transferTx.wait(1);
-					});
-					it('Count before 8th call should be 7', async function() {
-						expect(await randomizedCounter.count()).eq(7);
-					});
-					describe('Call function 8th time', () => {
-						before(async function() {
-							let tx = await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('1'));
-							await tx.wait(1);
-						});
-						it('Pool period finish eq to zero', async function() {
-							expect(await randomizedCounter.periodFinish()).eq(0);
-						});
-						it('Total rewards should not decrease', async function() {
-							expect(await randomizedCounter.totalRewards()).eq(totalRewardsBefore);
-						});
-						it('Count after 8th call should be 0', async function() {
-							expect(await randomizedCounter.count()).eq(0);
-						});
-						it('Total reward amount should not increase', async function() {
-							expect(await randomizedCounter.totalRewards()).eq(0);
-						});
-					});
+					await incentivizer.setPoolEnabled(true);
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+					await incentivizer.stake(parseEther('10'));
+					await incentivizer.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'));
+					await debase.transfer(
+						incentivizer.address,
+						parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+					);
+					rewardRateBefore = await incentivizer.rewardRate();
+					await debase.rebase(1, parseEther('10000').mul(-1));
+
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+
+					await degovLP.approve(incentivizer.address, parseEther('10'));
+
+					await degovLP.approve(incentivizer.address, parseEther('10'));
 				});
-
-				describe('For 8 function calls and stabilizer balance is more request amount', () => {
-					before(async function() {
-						randomizedCounter = await randomizedCounterFactory.deploy();
-
-						account = await accounts[0].getAddress();
-						let result = await randomizedCounter.initialize(
-							'Random Counter',
-							debase.address,
-							dai,
-							account,
-							rewardAmount,
-							duration
-						);
-						await result.wait(1);
-						countBefore = await randomizedCounter.count();
-						totalRewardsBefore = await randomizedCounter.totalRewards();
-
-						//prettier-ignore
-						await randomizedCounter.setNormalDistribution(8,0,[8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])
-						//prettier-ignore
-						let transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-						transferTx.wait(1);
-						transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-						transferTx.wait(1);
-					});
-
-					it('Count before 8th call should be 7', async function() {
-						expect(await randomizedCounter.count()).eq(7);
-					});
-					describe('Call function 8th time', () => {
-						before(async function() {
-							let tx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-							await tx.wait(1);
-						});
-						it('Pool period finish not eq to zero', async function() {
-							expect(await randomizedCounter.periodFinish()).not.eq(0);
-						});
-						it('Total rewards should not decrease', async function() {
-							expect(await randomizedCounter.totalRewards()).not.eq(totalRewardsBefore);
-						});
-						it('Count after 8th call should be 0', async function() {
-							expect(await randomizedCounter.count()).eq(0);
-						});
-					});
+				it('Should have claimable % equal to % of debase sent after reward period has elapsed', async function() {
+					let totalReward = rewardRateBefore.mul(2);
+					expect(await incentivizer.earned(address)).eq(totalReward);
 				});
-			});
-
-			describe('Revoke reward check', () => {
-				describe('Revoke reward enabled', () => {
-					describe('When no rewards available to be revoked', () => {
-						before(async function() {
-							randomizedCounter = await randomizedCounterFactory.deploy();
-
-							account = await accounts[0].getAddress();
-							let result = await randomizedCounter.initialize(
-								'Random Counter',
-								debase.address,
-								dai,
-								account,
-								rewardAmount,
-								duration
-							);
-							await result.wait(1);
-							countBefore = await randomizedCounter.count();
-							totalRewardsBefore = await randomizedCounter.totalRewards();
-
-							//prettier-ignore
-							await randomizedCounter.setNormalDistribution(8,0,[8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])
-							//prettier-ignore
-							let transferTx = await randomizedCounter.setRevokeReward(true)
-							transferTx.wait(1);
-							//prettier-ignore
-							transferTx = await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('1000'));
-							transferTx.wait(1);
-						});
-						it('Pool period should not change', async function() {
-							let periodFinishBefore = await randomizedCounter.periodFinish();
-							expect(await randomizedCounter.periodFinish()).eq(periodFinishBefore);
-						});
-						it('Total rewards should not decrease', async function() {
-							expect(await randomizedCounter.totalRewards()).eq(totalRewardsBefore);
-						});
-					});
-					describe('When rewards available to be revoked', () => {
-						describe('When revoke reward duration is <= period finish', () => {
-							before(async function() {
-								randomizedCounter = await randomizedCounterFactory.deploy();
-
-								account = await accounts[0].getAddress();
-								let result = await randomizedCounter.initialize(
-									'Random Counter',
-									debase.address,
-									dai,
-									account,
-									rewardAmount,
-									duration
-								);
-								await result.wait(1);
-								countBefore = await randomizedCounter.count();
-
-								//prettier-ignore
-								await randomizedCounter.setNormalDistribution(8,0,[8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])
-
-								await randomizedCounter.setRevokeReward(true);
-								await randomizedCounter.setRevokeRewardDuration(24 * 60 * 60);
-								//prettier-ignore
-								let transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								totalRewardsBefore = await randomizedCounter.totalRewards();
-								periodFinishBefore = await randomizedCounter.periodFinish();
-
-								transferTx = await debase.transfer(
-									randomizedCounter.address,
-									await randomizedCounter.rewardAmount()
-								);
-								transferTx.wait(1);
-
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-							});
-
-							it('Pool period should decrease by revoke reward duration', async function() {
-								let calPeriodFinish = periodFinishBefore.sub(
-									await randomizedCounter.revokeRewardDuration()
-								);
-								expect(await randomizedCounter.periodFinish()).eq(calPeriodFinish);
-							});
-							it('Total rewards should decrease by revoke reward amount', async function() {
-								let revokeReward = (await randomizedCounter.revokeRewardDuration()).mul(
-									await randomizedCounter.rewardRate()
-								);
-								let newTotalRewards = totalRewardsBefore.sub(revokeReward);
-								expect(await randomizedCounter.totalRewards()).eq(newTotalRewards);
-							});
-						});
-
-						describe('When revoke reward duration is > period finish', () => {
-							before(async function() {
-								randomizedCounter = await randomizedCounterFactory.deploy();
-
-								account = await accounts[0].getAddress();
-								let result = await randomizedCounter.initialize(
-									'Random Counter',
-									debase.address,
-									dai,
-									account,
-									rewardAmount,
-									duration
-								);
-								await result.wait(1);
-								countBefore = await randomizedCounter.count();
-								totalRewardsBefore = await randomizedCounter.totalRewards();
-
-								//prettier-ignore
-								await randomizedCounter.setNormalDistribution(8,0,[8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8])
-
-								await randomizedCounter.setRevokeReward(true);
-								await randomizedCounter.setRevokeRewardDuration(5 * 24 * 60 * 60);
-								//prettier-ignore
-								let transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-
-								transferTx = await debase.transfer(
-									randomizedCounter.address,
-									await randomizedCounter.rewardAmount()
-								);
-								transferTx.wait(1);
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-								totalRewardsBefore = await randomizedCounter.totalRewards();
-								periodFinishBefore = await randomizedCounter.periodFinish();
-
-								//prettier-ignore
-								transferTx = await randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('1000'));
-								transferTx.wait(1);
-							});
-							it('Pool period should decrease by revoke reward duration', async function() {
-								expect(await randomizedCounter.periodFinish()).eq(periodFinishBefore);
-							});
-							it('Total rewards should decrease by reward amount', async function() {
-								expect(await randomizedCounter.totalRewards()).eq(totalRewardsBefore);
-							});
-						});
-					});
+				it('Pool balance should be zero after get reward', async function() {
+					await incentivizer.getReward();
+					expect(await debase.balanceOf(incentivizer.address)).eq(0);
 				});
 			});
 		});
