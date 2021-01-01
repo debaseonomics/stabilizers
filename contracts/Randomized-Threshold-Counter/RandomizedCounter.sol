@@ -102,6 +102,7 @@ contract RandomizedCounter is
     event LogSetRandomNumberConsumer(
         RandomNumberConsumer randomNumberConsumer_
     );
+    event LogRevokeRewardDuration(uint256 revokeRewardDuration_);
     event LogSetBlockDuration(uint256 blockDuration_);
     event LogStartNewDistribtionCycle(
         uint256 poolShareAdded_,
@@ -153,7 +154,9 @@ contract RandomizedCounter is
     uint256 public poolLpLimit;
 
     // Revokes reward in relation to the percentage
-    uint256 public revokeRewardPrecentage;
+    uint256 public revokeRewardPercentage;
+
+    uint256 public revokeRewardDuration;
 
     // Should revoke reward
     bool public revokeReward;
@@ -162,7 +165,6 @@ contract RandomizedCounter is
 
     uint256 public lastRandomThreshold;
 
-    uint256 public revokeRewardDuration;
 
     // The count of s hitting their target
     uint256 public count;
@@ -180,7 +182,7 @@ contract RandomizedCounter is
     bool public beforePeriodFinish;
 
     // The mean for the normal distribution added
-    uint256 public noramlDistributionMean;
+    uint256 public normalDistributionMean;
 
     // The deviation for te normal distribution added
     uint256 public normalDistributionDeviation;
@@ -232,14 +234,22 @@ contract RandomizedCounter is
     }
 
     /**
-     * @notice Function to set how much of the reward duration should be revoked
+     * @notice Function to set how much of the reward percentage should be revoked
      */
-    function setRevokeRewardPercentage(uint256 revokeRewardPrecentage_)
+    function setRevokeRewardPercentage(uint256 revokeRewardPercentage_)
         external
         onlyOwner
     {
-        revokeRewardPrecentage = revokeRewardPrecentage_;
-        emit LogSetRevokeRewardPrecentage(revokeRewardPrecentage_);
+        revokeRewardPercentage = revokeRewardPercentage_;
+        emit LogSetRevokeRewardPrecentage(revokeRewardPercentage_);
+    }
+
+    /**
+     * @notice Function to set how much of the reward duration should be revoked
+     */
+    function setRevokeRewardDuration(uint256 revokeRewardDuration_) external onlyOwner {
+        revokeRewardDuration = revokeRewardDuration_;
+        emit LogRevokeRewardDuration(revokeRewardDuration);
     }
 
     /**
@@ -330,11 +340,11 @@ contract RandomizedCounter is
         uint256 normalDistributionDeviation_,
         uint256[100] calldata normalDistribution_
     ) external onlyOwner {
-        noramlDistributionMean = normalDistributionMean_;
+        normalDistributionMean = normalDistributionMean_;
         normalDistributionDeviation = normalDistributionDeviation_;
         normalDistribution = normalDistribution_;
         emit LogSetNormalDistribution(
-            noramlDistributionMean,
+            normalDistributionMean,
             normalDistributionDeviation,
             normalDistribution
         );
@@ -352,7 +362,7 @@ contract RandomizedCounter is
         uint256 userLpLimit_,
         bool enablePoolLpLimit_,
         uint256 poolLpLimit_,
-        uint256 revokeRewardPrecentage_,
+        uint256 revokeRewardPercentage_,
         uint256 normalDistributionMean_,
         uint256 normalDistributionDeviation_,
         uint256[100] memory normalDistribution_
@@ -370,10 +380,10 @@ contract RandomizedCounter is
         enablePoolLpLimit = enablePoolLpLimit_;
         poolLpLimit = poolLpLimit_;
         rewardPercentage = rewardPercentage_;
-        revokeRewardPrecentage = revokeRewardPrecentage_;
+        revokeRewardPercentage = revokeRewardPercentage_;
         countInSequence = true;
         normalDistribution = normalDistribution_;
-        noramlDistributionMean = normalDistributionMean_;
+        normalDistributionMean = normalDistributionMean_;
         normalDistributionDeviation = normalDistributionDeviation_;
     }
 
