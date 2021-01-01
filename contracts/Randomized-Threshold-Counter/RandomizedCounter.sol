@@ -118,7 +118,12 @@ contract RandomizedCounter is
     event LogSetPoolLpLimit(uint256 poolLpLimit_);
     event LogRewardsClaimed(uint256 rewardAmount_);
     event LogRewardAdded(uint256 reward);
-    event LogRewardRevoked(uint256 precentageRevoked, uint256 amountRevoked);
+    event LogRewardRevoked(
+        uint256 revokeDuratoin,
+        uint256 precentageRevoked,
+        uint256 amountRevoked
+    );
+    event LogClaimRevoked(uint256 claimAmountRevoked_);
     event LogStaked(address indexed user, uint256 amount);
     event LogWithdrawn(address indexed user, uint256 amount);
     event LogRewardPaid(address indexed user, uint256 reward);
@@ -153,7 +158,7 @@ contract RandomizedCounter is
     // Should revoke reward
     bool public revokeReward;
 
-    uint256 public lastRewardClaimed;
+    uint256 public lastRewardPercentage;
 
     uint256 public lastRandomThreshold;
 
@@ -343,7 +348,9 @@ contract RandomizedCounter is
         address link_,
         uint256 rewardPercentage_,
         uint256 blockDuration_,
+        bool enableUserLpLimit_,
         uint256 userLpLimit_,
+        bool enablePoolLpLimit_,
         uint256 poolLpLimit_,
         uint256 revokeRewardPrecentage_,
         uint256 normalDistributionMean_,
@@ -358,7 +365,9 @@ contract RandomizedCounter is
         count = 0;
 
         blockDuration = blockDuration_;
+        enableUserLpLimit = enableUserLpLimit_;
         userLpLimit = userLpLimit_;
+        enablePoolLpLimit = enablePoolLpLimit_;
         poolLpLimit = poolLpLimit_;
         rewardPercentage = rewardPercentage_;
         revokeRewardPrecentage = revokeRewardPrecentage_;
@@ -394,14 +403,16 @@ contract RandomizedCounter is
                 randomNumberConsumer.fee() &&
                 (beforePeriodFinish || block.number >= periodFinish)
             ) {
-                lastRewardClaimed = debasePolicyBalance
-                    .mul(rewardPercentage)
-                    .div(10**18);
+                uint256 rewardToClaim =
+                    debasePolicyBalance.mul(rewardPercentage).div(10**18);
+                lastRewardPercentage = rewardToClaim.mul(10**18).div(
+                    debase.totalSupply()
+                );
 
-                if (debasePolicyBalance >= lastRewardClaimed) {
+                if (debasePolicyBalance >= rewardToClaim) {
                     randomNumberConsumer.getRandomNumber(block.number);
-                    emit LogRewardsClaimed(lastRewardClaimed);
-                    return lastRewardClaimed;
+                    emit LogRewardsClaimed(rewardToClaim);
+                    return rewardToClaim;
                 }
             }
         } else if (countInSequence) {
@@ -414,12 +425,21 @@ contract RandomizedCounter is
                     //Set reward distribution period back
                     periodFinish = periodFinish.sub(revokeRewardDuration);
                     //Calculate reward to rewark by amount the reward moved back
-                    uint256 rewardToRevoke =
+                    uint256 rewardToRevokeShare =
                         rewardRate.mul(revokeRewardDuration);
+
+                    uint256 rewardToRevokeAmount =
+                        debase.totalSupply().mul(rewardToRevokeShare).div(
+                            10**18
+                        );
                     lastUpdateBlock = block.number;
 
-                    debase.safeTransfer(policy, rewardToRevoke);
-                    emit LogRewardRevoked(revokeRewardDuration, rewardToRevoke);
+                    debase.safeTransfer(policy, rewardToRevokeAmount);
+                    emit LogRewardRevoked(
+                        revokeRewardDuration,
+                        rewardToRevokeShare,
+                        rewardToRevokeAmount
+                    );
                 }
             }
         }
@@ -438,7 +458,11 @@ contract RandomizedCounter is
             startNewDistribtionCycle();
             count = 0;
         } else {
-            debase.safeTransfer(policy, lastRewardClaimed);
+            uint256 rewardToClaim =
+                debase.totalSupply().mul(lastRewardPercentage).div(10**18);
+
+            debase.safeTransfer(policy, rewardToClaim);
+            emit LogClaimRevoked(rewardToClaim);
         }
     }
 
@@ -541,21 +565,21 @@ contract RandomizedCounter is
     }
 
     function startNewDistribtionCycle() internal updateReward(address(0)) {
-        uint256 poolTotalShare =
-            lastRewardClaimed.mul(10**18).div(debase.totalSupply());
+        uint256 addPoollShare =
+            debase.totalSupply().mul(lastRewardPercentage).div(10**10);
 
         if (block.number >= periodFinish) {
-            rewardRate = poolTotalShare.div(blockDuration);
+            rewardRate = addPoollShare.div(blockDuration);
         } else {
             uint256 remaining = periodFinish.sub(block.number);
             uint256 leftover = remaining.mul(rewardRate);
-            rewardRate = poolTotalShare.add(leftover).div(blockDuration);
+            rewardRate = addPoollShare.add(leftover).div(blockDuration);
         }
         lastUpdateBlock = block.number;
         periodFinish = block.number.add(blockDuration);
 
         emit LogStartNewDistribtionCycle(
-            poolTotalShare,
+            addPoollShare,
             rewardRate,
             periodFinish,
             count,
