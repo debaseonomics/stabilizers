@@ -16,19 +16,26 @@ contract RandomNumberConsumer is VRFConsumerBase {
     // The address that can request new random numbers
     RandomizedCounter public randomizedCounter;
 
-    constructor(address multiSigSafe_, RandomizedCounter randomizedCounter_)
+    constructor(
+        address multiSigSafe_,
+        RandomizedCounter randomizedCounter_,
+        address VRFCoordinator_,
+        address link_,
+        bytes32 keyHash_,
+        uint256 fee_
+    )
         public
         VRFConsumerBase(
-            0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B, // VRF Coordinator
-            0x01BE23585060835E02B77ef475b0Cc51aA1e0709 // LINK Token
+            VRFCoordinator_, // VRF Coordinator
+            link_ // LINK Token
         )
     {
         multiSigSafe = multiSigSafe_;
         randomizedCounter = randomizedCounter_;
 
-        VRFCoordinator = 0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B;
-        keyHash = 0x2ed0feb3e7fd2022120aa84fab1945545a9f2ffc9076fd6156fa96eaff4c1311;
-        fee = 0.1 * 10**18;
+        VRFCoordinator = VRFCoordinator_;
+        keyHash = keyHash_;
+        fee = fee_;
     }
 
     /**

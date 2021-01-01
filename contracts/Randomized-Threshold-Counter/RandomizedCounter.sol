@@ -104,7 +104,7 @@ contract RandomizedCounter is
     );
     event LogRevokeRewardDuration(uint256 revokeRewardDuration_);
     event LogSetBlockDuration(uint256 blockDuration_);
-    event LogStartNewDistribtionCycle(
+    event LogStartNewDistributionCycle(
         uint256 poolShareAdded_,
         uint256 rewardRate_,
         uint256 periodFinish_,
@@ -281,7 +281,7 @@ contract RandomizedCounter is
     function setUserLpLimit(uint256 userLpLimit_) external onlyOwner {
         require(
             userLpLimit_ <= poolLpLimit,
-            "User lp limit can't be more than pool limit"
+            "User lp limit cant be more than pool limit"
         );
         userLpLimit = userLpLimit_;
         emit LogSetUserLpLimit(userLpLimit);
@@ -301,7 +301,7 @@ contract RandomizedCounter is
     function setPoolLpLimit(uint256 poolLpLimit_) external onlyOwner {
         require(
             poolLpLimit_ >= userLpLimit,
-            "Pool lp limit can't be less than user lp limit"
+            "Pool lp limit cant be less than user lp limit"
         );
         poolLpLimit = poolLpLimit_;
         emit LogSetPoolLpLimit(poolLpLimit);
@@ -451,7 +451,7 @@ contract RandomizedCounter is
         lastRandomThreshold = normalDistribution[randomNumber.mod(100)];
 
         if (count >= lastRandomThreshold) {
-            startNewDistribtionCycle();
+            startNewDistributionCycle();
             count = 0;
         } else {
             uint256 rewardToClaim =
@@ -514,14 +514,14 @@ contract RandomizedCounter is
             uint256 lpBalance = totalSupply();
             require(
                 amount.add(lpBalance) <= poolLpLimit,
-                "Can't stake pool lp limit reached"
+                "Cant stake pool lp limit reached"
             );
         }
         if (enableUserLpLimit) {
             uint256 userLpBalance = balanceOf(msg.sender);
             require(
                 userLpBalance.add(amount) <= userLpLimit,
-                "Can't stake more than lp limit"
+                "Cant stake more than lp limit"
             );
         }
 
@@ -560,7 +560,7 @@ contract RandomizedCounter is
         }
     }
 
-    function startNewDistribtionCycle() internal updateReward(address(0)) {
+    function startNewDistributionCycle() internal updateReward(address(0)) {
         uint256 addPoollShare =
             debase.totalSupply().mul(lastRewardPercentage).div(10**10);
 
@@ -574,7 +574,7 @@ contract RandomizedCounter is
         lastUpdateBlock = block.number;
         periodFinish = block.number.add(blockDuration);
 
-        emit LogStartNewDistribtionCycle(
+        emit LogStartNewDistributionCycle(
             addPoollShare,
             rewardRate,
             periodFinish,

@@ -58,7 +58,6 @@ describe('Debase/Dai Randomized Counter', function() {
 		let randomizedCounter: RandomizedCounter;
 		let randomNumberConsumer: RandomNumberConsumer;
 		let degovLP: Token;
-		let link: Token;
 		let debase: Debase;
 		let address: string;
 
@@ -74,23 +73,33 @@ describe('Debase/Dai Randomized Counter', function() {
 		const normalDistributionDeviation = 2;
 		//prettier-ignore
 		const normalDistribution = [8, 5, 4, 7, 10, 7, 5, 5, 3, 8, 5, 5, 3, 8, 4, 6, 5, 5, 3, 7, 6, 9, 8, 7, 6, 6, 5, 8, 6, 2, 8, 9, 5, 5, 4, 3, 8, 1, 5, 5, 5, 3, 5, 4, 8, 5, 6, 3, 4, 1, 3, 4, 3, 6, 4, 6, 5, 7, 6, 7, 5, 4, 1, 5, 6, 5, 7, 9, 3, 5, 4, 7, 3, 8, 7, 5, 5, 8, 0, 7, 4, 3, 6, 6, 4, 4, 5, 2, 4, 6, 6, 8, 8, 3, 7, 6, 7, 4, 4, 6]
+		const vrf = '0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B';
+		const link = '0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B';
+		const keyHash = '0x2ed0feb3e7fd2022120aa84fab1945545a9f2ffc9076fd6156fa96eaff4c1311';
+		const fee = parseUnits('1', 17);
 
 		before(async function() {
 			address = await accounts[0].getAddress();
 
 			debase = await debaseFactory.deploy();
 			degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
-			link = await tokenFactory.deploy('LINK', 'LINK');
 			randomizedCounter = await randomizedCounterFactory.deploy();
 
-			randomNumberConsumer = await randomNumberConsumerFactory.deploy(address, randomizedCounter.address);
+			randomNumberConsumer = await randomNumberConsumerFactory.deploy(
+				address,
+				randomizedCounter.address,
+				vrf,
+				link,
+				keyHash,
+				fee
+			);
 
 			await randomizedCounter.initialize(
 				debase.address,
 				degovLP.address,
 				address,
 				randomNumberConsumer.address,
-				link.address,
+				link,
 				rewardPercentage,
 				duration,
 				userLpEnable,
@@ -155,7 +164,6 @@ describe('Debase/Dai Randomized Counter', function() {
 		let randomizedCounter: RandomizedCounter;
 		let randomNumberConsumer: RandomNumberConsumer;
 		let degovLP: Token;
-		let link: Token;
 		let debase: Debase;
 		let address: string;
 		let degovLpUser2: Token;
@@ -164,7 +172,7 @@ describe('Debase/Dai Randomized Counter', function() {
 		const duration = 4 * 24 * 60 * 60;
 		const userLpLimit = parseEther('10');
 		const userLpEnable = true;
-		const poolLpLimit = parseEther('100');
+		const poolLpLimit = parseEther('15');
 		const poolLpEnable = true;
 		const rewardPercentage = parseUnits('1', 17);
 		const revokeRewardDuration = 1 * 24 * 60 * 60;
@@ -173,6 +181,10 @@ describe('Debase/Dai Randomized Counter', function() {
 		const normalDistributionDeviation = 2;
 		//prettier-ignore
 		const normalDistribution = [8, 5, 4, 7, 10, 7, 5, 5, 3, 8, 5, 5, 3, 8, 4, 6, 5, 5, 3, 7, 6, 9, 8, 7, 6, 6, 5, 8, 6, 2, 8, 9, 5, 5, 4, 3, 8, 1, 5, 5, 5, 3, 5, 4, 8, 5, 6, 3, 4, 1, 3, 4, 3, 6, 4, 6, 5, 7, 6, 7, 5, 4, 1, 5, 6, 5, 7, 9, 3, 5, 4, 7, 3, 8, 7, 5, 5, 8, 0, 7, 4, 3, 6, 6, 4, 4, 5, 2, 4, 6, 6, 8, 8, 3, 7, 6, 7, 4, 4, 6]
+		const vrf = '0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B';
+		const link = '0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B';
+		const keyHash = '0x2ed0feb3e7fd2022120aa84fab1945545a9f2ffc9076fd6156fa96eaff4c1311';
+		const fee = parseUnits('1', 17);
 
 		describe('User/Pool Lp Limits', () => {
 			before(async function() {
@@ -182,18 +194,24 @@ describe('Debase/Dai Randomized Counter', function() {
 				debase = await debaseFactory.deploy();
 				degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
 				degovLpUser2 = await degovLP.connect(accounts[1]);
-				link = await tokenFactory.deploy('LINK', 'LINK');
 				randomizedCounter = await randomizedCounterFactory.deploy();
 				await degovLP.transfer(address2, parseEther('20'));
 
-				randomNumberConsumer = await randomNumberConsumerFactory.deploy(address, randomizedCounter.address);
+				randomNumberConsumer = await randomNumberConsumerFactory.deploy(
+					address,
+					randomizedCounter.address,
+					vrf,
+					link,
+					keyHash,
+					fee
+				);
 
 				await randomizedCounter.initialize(
 					debase.address,
 					degovLP.address,
 					address,
 					randomNumberConsumer.address,
-					link.address,
+					link,
 					rewardPercentage,
 					duration,
 					userLpEnable,
@@ -205,6 +223,7 @@ describe('Debase/Dai Randomized Counter', function() {
 					normalDistributionDeviation,
 					normalDistribution
 				);
+				await randomizedCounter.setPoolEnabled(true);
 				randomizedCounter2 = await randomizedCounter.connect(accounts[1]);
 				await randomizedCounter.setRevokeReward(revokeReward);
 				await degovLP.approve(randomizedCounter.address, parseEther('20'));
@@ -237,18 +256,24 @@ describe('Debase/Dai Randomized Counter', function() {
 				debase = await debaseFactory.deploy();
 				degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
 				degovLpUser2 = await degovLP.connect(accounts[1]);
-				link = await tokenFactory.deploy('LINK', 'LINK');
 				randomizedCounter = await randomizedCounterFactory.deploy();
 				await degovLP.transfer(address2, parseEther('20'));
 
-				randomNumberConsumer = await randomNumberConsumerFactory.deploy(address, randomizedCounter.address);
+				randomNumberConsumer = await randomNumberConsumerFactory.deploy(
+					address,
+					randomizedCounter.address,
+					vrf,
+					link,
+					keyHash,
+					fee
+				);
 
 				await randomizedCounter.initialize(
 					debase.address,
 					degovLP.address,
 					address,
 					randomNumberConsumer.address,
-					link.address,
+					link,
 					rewardPercentage,
 					duration,
 					userLpEnable,
@@ -273,156 +298,198 @@ describe('Debase/Dai Randomized Counter', function() {
 				await expect(randomizedCounter.withdraw(parseEther('10'))).to.be.reverted;
 			});
 		});
-		// describe('When Pool is enabled', () => {
-		// 	describe('When pool is not rewarded balance', () => {
-		// 		before(async function() {
-		// 			address = await accounts[0].getAddress();
+		describe('When Pool is enabled', () => {
+			describe('When pool is not rewarded balance', () => {
+				before(async function() {
+					address = await accounts[0].getAddress();
+					let address2 = await accounts[1].getAddress();
 
-		// 			debase = await debaseFactory.deploy();
-		// 			degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+					debase = await debaseFactory.deploy();
+					degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+					degovLpUser2 = await degovLP.connect(accounts[1]);
+					randomizedCounter = await randomizedCounterFactory.deploy();
+					await degovLP.transfer(address2, parseEther('20'));
 
-		// 			randomizedCounter = await RandomizedCounterFactory.initialize(
-		// 				debase.address,
-		// 				degovLP.address,
-		// 				address,
-		// 				rewardPercentage,
-		// 				duration,
-		// 				userLpEnable,
-		// 				userLpLimit,
-		// 				poolLpEnable,
-		// 				poolLpLimit
-		// 			);
+					randomNumberConsumer = await randomNumberConsumerFactory.deploy(
+						address,
+						randomizedCounter.address,
+						vrf,
+						link,
+						keyHash,
+						fee
+					);
 
-		// 			await randomizedCounter.setPoolEnabled(true);
-		// 			await degovLP.approve(randomizedCounter.address, parseEther('10'));
-		// 		});
-		// 		it('Should be enabled', async function() {
-		// 			expect(await randomizedCounter.poolEnabled()).to.be.true;
-		// 		});
-		// 		it('Should be able to stake', async function() {
-		// 			expect(await randomizedCounter.stake(parseEther('10')));
-		// 		});
-		// 		it('Should have correct stake balance', async function() {
-		// 			expect(await randomizedCounter.balanceOf(address)).to.eq(parseEther('10'));
-		// 		});
-		// 		it('Should be able to withdraw', async function() {
-		// 			expect(await randomizedCounter.withdraw(parseEther('10')));
-		// 		});
-		// 		it('Should not earn rewards', async function() {
-		// 			expect(await randomizedCounter.earned(address)).eq(0);
-		// 		});
-		// 	});
+					await randomizedCounter.initialize(
+						debase.address,
+						degovLP.address,
+						address,
+						randomNumberConsumer.address,
+						link,
+						rewardPercentage,
+						duration,
+						userLpEnable,
+						userLpLimit,
+						poolLpEnable,
+						poolLpLimit,
+						revokeRewardDuration,
+						normalDistributionMean,
+						normalDistributionDeviation,
+						normalDistribution
+					);
+					await randomizedCounter.setPoolEnabled(true);
+					randomizedCounter2 = await randomizedCounter.connect(accounts[1]);
+					await randomizedCounter.setRevokeReward(revokeReward);
+					await degovLP.approve(randomizedCounter.address, parseEther('20'));
+					await degovLpUser2.approve(randomizedCounter.address, parseEther('20'));
+				});
+				it('Should be enabled', async function() {
+					expect(await randomizedCounter.poolEnabled()).to.be.true;
+				});
+				it('Should be able to stake', async function() {
+					expect(await randomizedCounter.stake(parseEther('10')));
+				});
+				it('Should have correct stake balance', async function() {
+					expect(await randomizedCounter.balanceOf(address)).to.eq(parseEther('10'));
+				});
+				it('Should be able to withdraw', async function() {
+					expect(await randomizedCounter.withdraw(parseEther('10')));
+				});
+				it('Should not earn rewards', async function() {
+					expect(await randomizedCounter.earned(address)).eq(0);
+				});
+			});
 
-		// 	describe('When pool is rewarded balance', () => {
-		// 		describe('For a single user', () => {
-		// 			describe('Simple Usage', () => {
-		// 				before(async function() {
-		// 					address = await accounts[0].getAddress();
+			// describe('When pool is rewarded balance', () => {
+			// 	describe('For a single user', () => {
+			// 		describe('Simple Usage', () => {
+			// 			before(async function() {
+			// 				address = await accounts[0].getAddress();
+			// 				let address2 = await accounts[1].getAddress();
 
-		// 					debase = await debaseFactory.deploy();
-		// 					degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+			// 				debase = await debaseFactory.deploy();
+			// 				degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+			// 				degovLpUser2 = await degovLP.connect(accounts[1]);
+			// 				randomizedCounter = await randomizedCounterFactory.deploy();
+			// 				await degovLP.transfer(address2, parseEther('20'));
 
-		// 					randomizedCounter = await RandomizedCounterFactory.initialize(
-		// 						debase.address,
-		// 						degovLP.address,
-		// 						address,
-		// 						rewardPercentage,
-		// 						duration,
-		// 						userLpEnable,
-		// 						userLpLimit,
-		// 						poolLpEnable,
-		// 						poolLpLimit
-		// 					);
+			// 				randomNumberConsumer = await randomNumberConsumerFactory.deploy(
+			// 					address,
+			// 					randomizedCounter.address,
+			// 					vrf,
+			// 					link,
+			// 					keyHash,
+			// 					fee
+			// 				);
 
-		// 					await randomizedCounter.setPoolEnabled(true);
-		// 					await degovLP.approve(randomizedCounter.address, parseEther('10'));
-		// 				});
-		// 				it('Should claim reward with correct amount', async function() {
-		// 					let reward = parseEther('100').mul(rewardPercentage).div(parseEther('1'));
-		// 					let share = reward.mul(parseEther('1')).div(await debase.totalSupply());
-		// 					let rewardRate = share.div(duration);
+			// 				await randomizedCounter.initialize(
+			// 					debase.address,
+			// 					degovLP.address,
+			// 					address,
+			// 					randomNumberConsumer.address,
+			// 					link,
+			// 					rewardPercentage,
+			// 					duration,
+			// 					userLpEnable,
+			// 					userLpLimit,
+			// 					poolLpEnable,
+			// 					poolLpLimit,
+			// 					revokeRewardDuration,
+			// 					normalDistributionMean,
+			// 					normalDistributionDeviation,
+			// 					normalDistribution
+			// 				);
+			// 				await randomizedCounter.setPoolEnabled(true);
+			// 				randomizedCounter2 = await randomizedCounter.connect(accounts[1]);
+			// 				await randomizedCounter.setRevokeReward(revokeReward);
+			// 				await degovLP.approve(randomizedCounter.address, parseEther('20'));
+			// 				await degovLpUser2.approve(randomizedCounter.address, parseEther('20'));
+			// 			});
+			// 			it('Should claim reward with correct amount', async function() {
+			// 				let reward = parseEther('100').mul(rewardPercentage).div(parseEther('1'));
+			// 				let share = reward.mul(parseEther('1')).div(await debase.totalSupply());
+			// 				let rewardRate = share.div(duration);
 
-		// 					await expect(randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'))).to
-		// 						.emit(randomizedCounter, 'LogStartNewDistribtionCycle')
-		// 						.withArgs(
-		// 							share,
-		// 							reward,
-		// 							rewardRate,
-		// 							(await randomizedCounter.lastUpdateBlock()).add(duration)
-		// 						);
-		// 				});
-		// 				it('Its reward Rate should be correct', async function() {
-		// 					await debase.transfer(
-		// 						randomizedCounter.address,
-		// 						parseEther('100').mul(rewardPercentage).div(parseEther('1'))
-		// 					);
-		// 					let expectedRewardRate = (await debase.balanceOf(randomizedCounter.address))
-		// 						.mul(parseEther('1'))
-		// 						.div(await debase.totalSupply())
-		// 						.div(duration);
+			// 				await expect(randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'))).to
+			// 					.emit(randomizedCounter, 'LogStartNewDistributionCycle')
+			// 					.withArgs(
+			// 						share,
+			// 						reward,
+			// 						rewardRate,
+			// 						(await randomizedCounter.lastUpdateBlock()).add(duration)
+			// 					);
+			// 			});
+			// 			it('Its reward Rate should be correct', async function() {
+			// 				await debase.transfer(
+			// 					randomizedCounter.address,
+			// 					parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+			// 				);
+			// 				let expectedRewardRate = (await debase.balanceOf(randomizedCounter.address))
+			// 					.mul(parseEther('1'))
+			// 					.div(await debase.totalSupply())
+			// 					.div(duration);
 
-		// 					expect(await randomizedCounter.rewardRate()).to.eq(expectedRewardRate);
-		// 				});
-		// 				it('Should be able to stake', async function() {
-		// 					expect(await randomizedCounter.stake(parseEther('10')));
-		// 				});
-		// 				it('Should be able to withdraw', async function() {
-		// 					expect(await randomizedCounter.withdraw(parseEther('10')));
-		// 				});
-		// 				it('Should earn rewards', async function() {
-		// 					expect(await randomizedCounter.earned(address)).not.eq(0);
-		// 				});
-		// 				it('Should emit a transfer event when rewards are claimed', async function() {
-		// 					await expect(randomizedCounter.getReward()).to.emit(debase, 'Transfer');
-		// 				});
-		// 			});
+			// 				expect(await randomizedCounter.rewardRate()).to.eq(expectedRewardRate);
+			// 			});
+			// 			it('Should be able to stake', async function() {
+			// 				expect(await randomizedCounter.stake(parseEther('10')));
+			// 			});
+			// 			it('Should be able to withdraw', async function() {
+			// 				expect(await randomizedCounter.withdraw(parseEther('10')));
+			// 			});
+			// 			it('Should earn rewards', async function() {
+			// 				expect(await randomizedCounter.earned(address)).not.eq(0);
+			// 			});
+			// 			it('Should emit a transfer event when rewards are claimed', async function() {
+			// 				await expect(randomizedCounter.getReward()).to.emit(debase, 'Transfer');
+			// 			});
+			// 		});
 
-		// 			describe('Claiming Maximum Balance', () => {
-		// 				before(async function() {
-		// 					address = await accounts[0].getAddress();
+			// 		// describe('Claiming Maximum Balance', () => {
+			// 		// 	before(async function() {
+			// 		// 		address = await accounts[0].getAddress();
 
-		// 					debase = await debaseFactory.deploy();
-		// 					degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
+			// 		// 		debase = await debaseFactory.deploy();
+			// 		// 		degovLP = await tokenFactory.deploy('DEGOVLP', 'DEGOVLP');
 
-		// 					randomizedCounter = await RandomizedCounterFactory.initialize(
-		// 						debase.address,
-		// 						degovLP.address,
-		// 						address,
-		// 						rewardPercentage,
-		// 						2,
-		// 						userLpEnable,
-		// 						userLpLimit,
-		// 						poolLpEnable,
-		// 						poolLpLimit
-		// 					);
+			// 		// 		randomizedCounter = await RandomizedCounterFactory.initialize(
+			// 		// 			debase.address,
+			// 		// 			degovLP.address,
+			// 		// 			address,
+			// 		// 			rewardPercentage,
+			// 		// 			2,
+			// 		// 			userLpEnable,
+			// 		// 			userLpLimit,
+			// 		// 			poolLpEnable,
+			// 		// 			poolLpLimit
+			// 		// 		);
 
-		// 					await randomizedCounter.setPoolEnabled(true);
-		// 					await degovLP.approve(randomizedCounter.address, parseEther('10'));
-		// 					await randomizedCounter.stake(parseEther('10'));
-		// 					await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'));
-		// 					await debase.transfer(
-		// 						randomizedCounter.address,
-		// 						parseEther('100').mul(rewardPercentage).div(parseEther('1'))
-		// 					);
-		// 					await degovLP.approve(randomizedCounter.address, parseEther('10'));
+			// 		// 		await randomizedCounter.setPoolEnabled(true);
+			// 		// 		await degovLP.approve(randomizedCounter.address, parseEther('10'));
+			// 		// 		await randomizedCounter.stake(parseEther('10'));
+			// 		// 		await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'));
+			// 		// 		await debase.transfer(
+			// 		// 			randomizedCounter.address,
+			// 		// 			parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+			// 		// 		);
+			// 		// 		await degovLP.approve(randomizedCounter.address, parseEther('10'));
 
-		// 					await degovLP.approve(randomizedCounter.address, parseEther('10'));
+			// 		// 		await degovLP.approve(randomizedCounter.address, parseEther('10'));
 
-		// 					await degovLP.approve(randomizedCounter.address, parseEther('10'));
-		// 				});
-		// 				it('Should have claimable % equal to % of debase sent after reward period has elapsed', async function() {
-		// 					let rewardRate = (await randomizedCounter.rewardRate()).mul(2);
-		// 					expect(await randomizedCounter.earned(address)).eq(rewardRate);
-		// 				});
-		// 				it('Should transfer correct amount of debase on get reward', async function() {
-		// 					await expect(randomizedCounter.getReward()).to
-		// 						.emit(randomizedCounter, 'LogRewardPaid')
-		// 						.withArgs(address, parseEther('100').mul(rewardPercentage).div(parseEther('1')));
-		// 				});
-		// 			});
-		// 		});
-		// 	});
-		// });
+			// 		// 		await degovLP.approve(randomizedCounter.address, parseEther('10'));
+			// 		// 	});
+			// 		// 	it('Should have claimable % equal to % of debase sent after reward period has elapsed', async function() {
+			// 		// 		let rewardRate = (await randomizedCounter.rewardRate()).mul(2);
+			// 		// 		expect(await randomizedCounter.earned(address)).eq(rewardRate);
+			// 		// 	});
+			// 		// 	it('Should transfer correct amount of debase on get reward', async function() {
+			// 		// 		await expect(randomizedCounter.getReward()).to
+			// 		// 			.emit(randomizedCounter, 'LogRewardPaid')
+			// 		// 			.withArgs(address, parseEther('100').mul(rewardPercentage).div(parseEther('1')));
+			// 		// 	});
+			// 		// });
+			// 	});
+			// });
+		});
 	});
 	// describe('Operation Under Rebases', () => {
 	// 	let randomizedCounter: RandomizedCounter;
