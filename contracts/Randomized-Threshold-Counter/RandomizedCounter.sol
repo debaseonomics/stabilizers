@@ -153,9 +153,6 @@ contract RandomizedCounter is
     //Total amount of lp tat can be staked
     uint256 public poolLpLimit;
 
-    // Revokes reward in relation to the percentage
-    uint256 public revokeRewardPercentage;
-
     uint256 public revokeRewardDuration;
 
     // Should revoke reward
@@ -231,17 +228,6 @@ contract RandomizedCounter is
     function setRevokeReward(bool revokeReward_) external onlyOwner {
         revokeReward = revokeReward_;
         emit LogSetRevokeReward(revokeReward);
-    }
-
-    /**
-     * @notice Function to set how much of the reward percentage should be revoked
-     */
-    function setRevokeRewardPercentage(uint256 revokeRewardPercentage_)
-        external
-        onlyOwner
-    {
-        revokeRewardPercentage = revokeRewardPercentage_;
-        emit LogSetRevokeRewardPrecentage(revokeRewardPercentage_);
     }
 
     /**
@@ -362,7 +348,7 @@ contract RandomizedCounter is
         uint256 userLpLimit_,
         bool enablePoolLpLimit_,
         uint256 poolLpLimit_,
-        uint256 revokeRewardPercentage_,
+        uint256 revokeRewardDuration_,
         uint256 normalDistributionMean_,
         uint256 normalDistributionDeviation_,
         uint256[100] memory normalDistribution_
@@ -380,7 +366,7 @@ contract RandomizedCounter is
         enablePoolLpLimit = enablePoolLpLimit_;
         poolLpLimit = poolLpLimit_;
         rewardPercentage = rewardPercentage_;
-        revokeRewardPercentage = revokeRewardPercentage_;
+        revokeRewardDuration = revokeRewardDuration_;
         countInSequence = true;
         normalDistribution = normalDistribution_;
         normalDistributionMean = normalDistributionMean_;
