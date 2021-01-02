@@ -43,7 +43,13 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./RandomNumberConsumer.sol";
+import "hardhat/console.sol";
+
+interface IRandomNumberConsumer {
+    function getRandomNumber(uint256 userProvidedSeed) external;
+
+    function fee() external view returns (uint256);
+}
 
 contract LPTokenWrapper {
     using SafeMath for uint256;
@@ -100,16 +106,16 @@ contract RandomizedCounter is
         uint256[100] normalDistribution_
     );
     event LogSetRandomNumberConsumer(
-        RandomNumberConsumer randomNumberConsumer_
+        IRandomNumberConsumer randomNumberConsumer_
     );
     event LogRevokeRewardDuration(uint256 revokeRewardDuration_);
+    event LogLastRandomThreshold(uint256 lastRandomThreshold_);
     event LogSetBlockDuration(uint256 blockDuration_);
     event LogStartNewDistributionCycle(
         uint256 poolShareAdded_,
         uint256 rewardRate_,
         uint256 periodFinish_,
-        uint256 count_,
-        uint256 lastRandomThreshold_
+        uint256 count_
     );
     event LogRandomThresold(uint256 randomNumber);
     event LogSetPoolEnabled(bool poolEnabled_);
@@ -160,9 +166,6 @@ contract RandomizedCounter is
 
     uint256 public lastRewardPercentage;
 
-    uint256 public lastRandomThreshold;
-
-
     // The count of s hitting their target
     uint256 public count;
 
@@ -170,7 +173,7 @@ contract RandomizedCounter is
     bool public countInSequence;
 
     // Address for the random number contract (chainlink vrf)
-    RandomNumberConsumer public randomNumberConsumer;
+    IRandomNumberConsumer public randomNumberConsumer;
 
     //Address of the link token
     IERC20 public link;
@@ -233,7 +236,10 @@ contract RandomizedCounter is
     /**
      * @notice Function to set how much of the reward duration should be revoked
      */
-    function setRevokeRewardDuration(uint256 revokeRewardDuration_) external onlyOwner {
+    function setRevokeRewardDuration(uint256 revokeRewardDuration_)
+        external
+        onlyOwner
+    {
         revokeRewardDuration = revokeRewardDuration_;
         emit LogRevokeRewardDuration(revokeRewardDuration);
     }
@@ -310,11 +316,10 @@ contract RandomizedCounter is
     /**
      * @notice Function to set address of the random number consumer (chain link vrf)
      */
-    function setRandomNumberConsumer(RandomNumberConsumer randomNumberConsumer_)
-        external
-        onlyOwner
-    {
-        randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
+    function setRandomNumberConsumer(
+        IRandomNumberConsumer randomNumberConsumer_
+    ) external onlyOwner {
+        randomNumberConsumer = IRandomNumberConsumer(randomNumberConsumer_);
         emit LogSetRandomNumberConsumer(randomNumberConsumer);
     }
 
@@ -356,7 +361,7 @@ contract RandomizedCounter is
         setStakeToken(pairToken_);
         debase = IERC20(debase_);
         link = IERC20(link_);
-        randomNumberConsumer = RandomNumberConsumer(randomNumberConsumer_);
+        randomNumberConsumer = IRandomNumberConsumer(randomNumberConsumer_);
         policy = policy_;
         count = 0;
 
@@ -448,7 +453,8 @@ contract RandomizedCounter is
             "Only debase policy contract can call this"
         );
 
-        lastRandomThreshold = normalDistribution[randomNumber.mod(100)];
+        uint256 lastRandomThreshold = normalDistribution[randomNumber.mod(100)];
+        emit LogLastRandomThreshold(lastRandomThreshold);
 
         if (count >= lastRandomThreshold) {
             startNewDistributionCycle();
@@ -458,6 +464,7 @@ contract RandomizedCounter is
                 debase.totalSupply().mul(lastRewardPercentage).div(10**18);
 
             debase.safeTransfer(policy, rewardToClaim);
+            console.log("Revoke");
             emit LogClaimRevoked(rewardToClaim);
         }
     }
@@ -578,8 +585,7 @@ contract RandomizedCounter is
             addPoollShare,
             rewardRate,
             periodFinish,
-            count,
-            lastRandomThreshold
+            count
         );
     }
 }

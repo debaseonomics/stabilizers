@@ -49,7 +49,6 @@ contract RandomNumberConsumer is VRFConsumerBase {
             msg.sender == address(randomizedCounter),
             "Only counter can call this function"
         );
-        require(LINK.balanceOf(address(this)) >= fee, "Not enough LINK");
         return requestRandomness(keyHash, fee, userProvidedSeed);
     }
 
