@@ -17,7 +17,7 @@ import { RandomizedCounter } from '../../typechain/RandomizedCounter';
 import { Debase } from '../../typechain/Debase';
 import { MockRandomNumberConsumer } from '../../typechain/MockRandomNumberConsumer';
 
-import { parseEther, parseUnits } from 'ethers/lib/utils';
+import { formatEther, parseEther, parseUnits } from 'ethers/lib/utils';
 
 describe('Debase/Dai Randomized Counter', function() {
 	let accounts: Signer[];
@@ -70,12 +70,12 @@ describe('Debase/Dai Randomized Counter', function() {
 		const poolLpLimit = parseEther('15');
 		const poolLpEnable = true;
 		const rewardPercentage = parseUnits('1', 17);
-		const revokeRewardDuration = 1 * 24 * 60 * 60;
+		const revokeRewardDuration = 1;
 		const revokeReward = true;
 		const normalDistributionMean = 5;
 		const normalDistributionDeviation = 2;
 		//prettier-ignore
-		const normalDistribution = [8, 5, 4, 7, 10, 7, 5, 5, 3, 8, 5, 5, 3, 8, 4, 6, 5, 5, 3, 7, 6, 9, 8, 7, 6, 6, 5, 8, 6, 2, 8, 9, 5, 5, 4, 3, 8, 1, 5, 5, 5, 3, 5, 4, 8, 5, 6, 3, 4, 1, 3, 4, 3, 6, 4, 6, 5, 7, 6, 7, 5, 4, 1, 5, 6, 5, 7, 9, 3, 5, 4, 7, 3, 8, 7, 5, 5, 8, 0, 7, 4, 3, 6, 6, 4, 4, 5, 2, 4, 6, 6, 8, 8, 3, 7, 6, 7, 4, 4, 6]
+		const normalDistribution = [8, 2, 1, 7, 10, 7, 5, 5, 3, 8, 5, 5, 3, 8, 4, 6, 5, 5, 3, 7, 6, 9, 8, 7, 6, 6, 5, 8, 6, 2, 8, 9, 5, 5, 4, 3, 8, 1, 5, 5, 5, 3, 5, 4, 8, 5, 6, 3, 4, 1, 3, 4, 3, 6, 4, 6, 5, 7, 6, 7, 5, 4, 1, 5, 6, 5, 7, 9, 3, 5, 4, 7, 3, 8, 7, 5, 5, 8, 0, 7, 4, 3, 6, 6, 4, 4, 5, 2, 4, 6, 6, 8, 8, 3, 7, 6, 7, 4, 4, 6]
 		const vrf = '0xb3dCcb4Cf7a26f6cf6B120Cf5A73875B7BBc655B';
 		const keyHash = '0x2ed0feb3e7fd2022120aa84fab1945545a9f2ffc9076fd6156fa96eaff4c1311';
 		const fee = parseUnits('1', 17);
@@ -283,7 +283,7 @@ describe('Debase/Dai Randomized Counter', function() {
 					it('Random Consumer link balance less should be less than previous balance ', async function() {
 						expect(await link.balanceOf(randomNumberConsumer.address)).to.not.eq(bal);
 					});
-					describe('When random threshold for claim function doesnt hit target count by getting a higher threshold', () => {
+					describe('When random threshold for claim function does not hit target count by getting a higher threshold', () => {
 						before(async function() {
 							await debase.transfer(
 								randomizedCounter.address,
@@ -305,63 +305,108 @@ describe('Debase/Dai Randomized Counter', function() {
 							expect(await debase.balanceOf(randomizedCounter.address)).to.eq(0);
 						});
 					});
+					describe('When claim function is never called by the random number consumer', () => {
+						before(async function() {
+							expect(await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100')));
+							await debase.transfer(
+								randomizedCounter.address,
+								parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+							);
+						});
+						it('Emit a claim revoked event on next check stabilizer call', async function() {
+							await expect(randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'))).to
+								.emit(randomizedCounter, 'LogRewardsClaimed')
+								.withArgs(parseEther('100').mul(rewardPercentage).div(parseEther('1')));
+						});
+					});
+					describe('When random threshold for claim function does hit target count by getting a threshold', () => {
+						before(async function() {
+							expect(await randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100')));
+							await debase.transfer(
+								randomizedCounter.address,
+								parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+							);
+						});
+						it('Should emit a new distribution cycle', async function() {
+							const lastClaim = parseEther('100').mul(rewardPercentage).div(parseEther('1'));
+							const lastClaimPercentage = lastClaim.mul(parseEther('1')).div(await debase.totalSupply());
+							const rewardRate = lastClaimPercentage.div(5);
+
+							await expect(randomNumberConsumer.fulfillRandomness(2001)).to
+								.emit(randomizedCounter, 'LogStartNewDistributionCycle')
+								.withArgs(
+									lastClaimPercentage,
+									rewardRate,
+									(await randomizedCounter.lastUpdateBlock()).add(5),
+									4
+								);
+						});
+						it('Should not emit rewards claimed as period not finished', async function() {
+							await expect(
+								randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'))
+							).not.emit(randomizedCounter, 'LogRewardsClaimed');
+						});
+						describe('When stacking rewards are true', () => {
+							before(async function() {
+								await randomizedCounter.setBeforePeriodFinish(true);
+								await randomizedCounter.setBlockDuration(9);
+							});
+							it('Should emit rewards claimed even though last period not finished', async function() {
+								await expect(
+									randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'))
+								).emit(randomizedCounter, 'LogRewardsClaimed');
+							});
+							it('Should be able to stake', async function() {
+								await debase.transfer(
+									randomizedCounter.address,
+									parseEther('100').mul(rewardPercentage).div(parseEther('1'))
+								);
+								await randomNumberConsumer.fulfillRandomness(2002);
+
+								expect(await randomizedCounter.stake(parseEther('10')));
+							});
+							it('Should be able to withdraw', async function() {
+								expect(await randomizedCounter.withdraw(parseEther('10')));
+							});
+							it('Should earn rewards', async function() {
+								expect(await randomizedCounter.earned(address)).not.eq(0);
+							});
+							it('Should emit a transfer event when rewards are claimed', async function() {
+								await expect(randomizedCounter.getReward()).to.emit(debase, 'Transfer');
+							});
+							describe('Revoke Rewards', () => {
+								before(async function() {
+									await randomizedCounter.setCountInSequence(true);
+									await randomizedCounter.setRevokeReward(true);
+								});
+								it('Should emit rewards revoked event', async function() {
+									await expect(
+										randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('100'))
+									)
+										.emit(randomizedCounter, 'LogRewardRevoked')
+										.withArgs(
+											1,
+											(await randomizedCounter.rewardRate()).mul(1),
+											(await debase.totalSupply())
+												.mul(await randomizedCounter.rewardRate())
+												.div(parseEther('1'))
+										);
+								});
+								describe('When revoke reward duration is bigger than block duration', () => {
+									before(async function() {
+										await randomizedCounter.setRevokeRewardDuration(5);
+									});
+									it('Should not emit rewards revoked event', async function() {
+										await expect(
+											randomizedCounter.checkStabilizerAndGetReward(0, 1, 1, parseEther('100'))
+										).not.emit(randomizedCounter, 'LogRewardRevoked');
+									});
+								});
+							});
+						});
+					});
 				});
 			});
-
-			// describe('When pool is rewarded balance', () => {
-			// 	describe('Simple Usage', () => {
-			// 		it('Should claim reward with correct amount', async function() {
-			// 			let reward = parseEther('100').mul(rewardPercentage).div(parseEther('1'));
-			// 			let share = reward.mul(parseEther('1')).div(await debase.totalSupply());
-			// 			let rewardRate = share.div(duration);
-
-			// 			await expect(randomizedCounter.checkStabilizerAndGetReward(1, 1, 1, parseEther('100'))).to
-			// 				.emit(randomizedCounter, 'LogStartNewDistributionCycle')
-			// 				.withArgs(
-			// 					share,
-			// 					reward,
-			// 					rewardRate,
-			// 					(await randomizedCounter.lastUpdateBlock()).add(duration)
-			// 				);
-			// 		});
-			// 		it('Its reward Rate should be correct', async function() {
-			// 			await debase.transfer(
-			// 				randomizedCounter.address,
-			// 				parseEther('100').mul(rewardPercentage).div(parseEther('1'))
-			// 			);
-			// 			let expectedRewardRate = (await debase.balanceOf(randomizedCounter.address))
-			// 				.mul(parseEther('1'))
-			// 				.div(await debase.totalSupply())
-			// 				.div(duration);
-
-			// 			expect(await randomizedCounter.rewardRate()).to.eq(expectedRewardRate);
-			// 		});
-			// 		it('Should be able to stake', async function() {
-			// 			expect(await randomizedCounter.stake(parseEther('10')));
-			// 		});
-			// 		it('Should be able to withdraw', async function() {
-			// 			expect(await randomizedCounter.withdraw(parseEther('10')));
-			// 		});
-			// 		it('Should earn rewards', async function() {
-			// 			expect(await randomizedCounter.earned(address)).not.eq(0);
-			// 		});
-			// 		it('Should emit a transfer event when rewards are claimed', async function() {
-			// 			await expect(randomizedCounter.getReward()).to.emit(debase, 'Transfer');
-			// 		});
-			// 	});
-
-			// 	describe('Claiming Maximum Balance', () => {
-			// 		it('Should have claimable % equal to % of debase sent after reward period has elapsed', async function() {
-			// 			let rewardRate = (await randomizedCounter.rewardRate()).mul(2);
-			// 			expect(await randomizedCounter.earned(address)).eq(rewardRate);
-			// 		});
-			// 		it('Should transfer correct amount of debase on get reward', async function() {
-			// 			await expect(randomizedCounter.getReward()).to
-			// 				.emit(randomizedCounter, 'LogRewardPaid')
-			// 				.withArgs(address, parseEther('100').mul(rewardPercentage).div(parseEther('1')));
-			// 		});
-			// 	});
-			// });
 		});
 	});
 

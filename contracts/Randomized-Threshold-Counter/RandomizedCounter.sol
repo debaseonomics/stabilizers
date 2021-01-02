@@ -172,6 +172,8 @@ contract RandomizedCounter is
     // Flag to enable or disable   sequence checker
     bool public countInSequence;
 
+    bool public newBufferFunds;
+
     // Address for the random number contract (chainlink vrf)
     IRandomNumberConsumer public randomNumberConsumer;
 
@@ -395,6 +397,19 @@ contract RandomizedCounter is
             "Only debase policy contract can call this"
         );
 
+        if (newBufferFunds) {
+            uint256 previousUnusedRewardToClaim =
+                debase.totalSupply().mul(lastRewardPercentage).div(10**18);
+
+            if (
+                debase.balanceOf(address(this)) >= previousUnusedRewardToClaim
+            ) {
+                debase.safeTransfer(policy, previousUnusedRewardToClaim);
+                emit LogRewardsClaimed(previousUnusedRewardToClaim);
+            }
+            newBufferFunds = false;
+        }
+
         if (supplyDelta_ > 0) {
             count = count.add(1);
 
@@ -411,6 +426,7 @@ contract RandomizedCounter is
                 );
 
                 if (debasePolicyBalance >= rewardToClaim) {
+                    newBufferFunds = true;
                     randomNumberConsumer.getRandomNumber(block.number);
                     emit LogRewardsClaimed(rewardToClaim);
                     return rewardToClaim;
@@ -452,6 +468,7 @@ contract RandomizedCounter is
             msg.sender == address(randomNumberConsumer),
             "Only debase policy contract can call this"
         );
+        newBufferFunds = false;
 
         uint256 lastRandomThreshold = normalDistribution[randomNumber.mod(100)];
         emit LogLastRandomThreshold(lastRandomThreshold);
@@ -464,7 +481,6 @@ contract RandomizedCounter is
                 debase.totalSupply().mul(lastRewardPercentage).div(10**18);
 
             debase.safeTransfer(policy, rewardToClaim);
-            console.log("Revoke");
             emit LogClaimRevoked(rewardToClaim);
         }
     }
@@ -568,21 +584,18 @@ contract RandomizedCounter is
     }
 
     function startNewDistributionCycle() internal updateReward(address(0)) {
-        uint256 addPoollShare =
-            debase.totalSupply().mul(lastRewardPercentage).div(10**10);
-
         if (block.number >= periodFinish) {
-            rewardRate = addPoollShare.div(blockDuration);
+            rewardRate = lastRewardPercentage.div(blockDuration);
         } else {
             uint256 remaining = periodFinish.sub(block.number);
             uint256 leftover = remaining.mul(rewardRate);
-            rewardRate = addPoollShare.add(leftover).div(blockDuration);
+            rewardRate = lastRewardPercentage.add(leftover).div(blockDuration);
         }
         lastUpdateBlock = block.number;
         periodFinish = block.number.add(blockDuration);
 
         emit LogStartNewDistributionCycle(
-            addPoollShare,
+            lastRewardPercentage,
             rewardRate,
             periodFinish,
             count
