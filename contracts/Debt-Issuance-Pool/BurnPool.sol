@@ -24,7 +24,6 @@ contract BurnPool {
 
     IERC20 public debase;
     uint256 public debtBalance;
-    uint256 public negativeRebaseCount;
     uint256 public blockDuration;
     uint256 public rewardRate;
     uint256 public periodFinish;
@@ -32,7 +31,7 @@ contract BurnPool {
     uint256 public rewardPerTokenStored;
 
     bool public lastRebaseWasNotNegative;
-
+    uint256 public negativeRebaseCount;
     uint256 public peakDebaseRatio = 2;
 
     mapping(address => uint256) userCouponBalances;
@@ -41,6 +40,8 @@ contract BurnPool {
     mapping(address => uint256) public rewards;
 
     uint256 public couponsIssued;
+    uint256 public epochs;
+    uint256 public couponsPerEpoch;
 
     constructor(
         address debase_,
@@ -85,18 +86,19 @@ contract BurnPool {
 
             if (lastRebaseWasNotNegative) {
                 couponsIssued = 0;
+                lastRebaseWasNotNegative = false;
             }
 
-            lastRebaseWasNotNegative = false;
             debtBalance.add(newSupply.mul(circulatingShare).div(10**18));
         } else if (couponsIssued != 0) {
-            debtBalance = 0;
-            negativeRebaseCount = 0;
-            lastRebaseWasNotNegative = true;
+            if (block.number > periodFinish) {
+                debtBalance = 0;
+                negativeRebaseCount = 0;
+                lastRebaseWasNotNegative = true;
+                couponsPerEpoch = couponsIssued.div(epochs);
+            }
 
-            uint256 debaseToBeRewarded =
-                peakDebaseRatio.mul(couponsIssued).mul(10**18);
-
+            uint256 debaseToBeRewarded = peakDebaseRatio.mul(couponsPerEpoch);
             startNewDistributionCycle(debaseToBeRewarded);
 
             return debaseToBeRewarded;
@@ -105,9 +107,11 @@ contract BurnPool {
         return 0;
     }
 
-    function buyDebt(uint256 debtAmountToBuy) external {}
-
-    function sellCoupons(uint256 couponsAmountToSell) external {}
+    function buyDebt(uint256 debtAmountToBuy) external {
+        debtBalance = debtBalance.sub(debtAmountToBuy);
+        couponsIssued = couponsIssued.add(debtAmountToBuy);
+        debase.transfer(address(this), debtAmountToBuy);
+    }
 
     function emergencyWithdraw() external {
         debase.safeTransfer(policy, debase.balanceOf(address(this)));
@@ -140,7 +144,8 @@ contract BurnPool {
 
     function startNewDistributionCycle(uint256 amount) internal {
         uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
-        rewardRate = couponsIssued.div(blockDuration);
+
+        rewardRate = poolTotalShare.div(blockDuration);
         lastUpdateBlock = block.number;
         periodFinish = block.number.add(blockDuration);
 
