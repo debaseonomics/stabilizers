@@ -3,11 +3,13 @@ pragma solidity >=0.6.6;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/math/Math.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
 import "./lib/SafeMathInt.sol";
-import "./Coupons.sol";
 
-contract BurnPool is Coupons {
+contract BurnPool {
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
     using SafeMathInt for int256;
 
     event LogStartNewDistributionCycle(
@@ -27,14 +29,18 @@ contract BurnPool is Coupons {
     uint256 public rewardRate;
     uint256 public periodFinish;
     uint256 public lastUpdateBlock;
+    uint256 public rewardPerTokenStored;
 
     bool public lastRebaseWasNotNegative;
 
     uint256 public peakDebaseRatio = 2;
 
-    mapping(address => mapping(uint256 => uint256)) userCouponBalances;
+    mapping(address => uint256) userCouponBalances;
+
+    mapping(address => uint256) public userRewardPerTokenPaid;
+    mapping(address => uint256) public rewards;
+
     uint256 public couponsIssued;
-    uint256 public couponsClaimed;
 
     constructor(
         address debase_,
@@ -91,7 +97,7 @@ contract BurnPool is Coupons {
             uint256 debaseToBeRewarded =
                 peakDebaseRatio.mul(couponsIssued).mul(10**18);
 
-            // startNewDistributionCycle(debaseToBeRewarded);
+            startNewDistributionCycle(debaseToBeRewarded);
 
             return debaseToBeRewarded;
         }
@@ -103,46 +109,45 @@ contract BurnPool is Coupons {
 
     function sellCoupons(uint256 couponsAmountToSell) external {}
 
-    // function emergencyWithdraw() external {
-    //     debase.safeTransfer(policy, debase.balanceOf(address(this)));
-    //     emit LogEmergencyWithdraw(block.number);
-    // }
+    function emergencyWithdraw() external {
+        debase.safeTransfer(policy, debase.balanceOf(address(this)));
+    }
 
-    // function lastBlockRewardApplicable() internal view returns (uint256) {
-    //     return Math.min(block.number, periodFinish);
-    // }
+    function lastBlockRewardApplicable() internal view returns (uint256) {
+        return Math.min(block.number, periodFinish);
+    }
 
-    // function rewardPerToken() public view returns (uint256) {
-    //     if (totalSupply() == 0) {
-    //         return rewardPerTokenStored;
-    //     }
-    //     return
-    //         rewardPerTokenStored.add(
-    //             lastBlockRewardApplicable()
-    //                 .sub(lastUpdateBlock)
-    //                 .mul(rewardRate)
-    //                 .mul(10**18)
-    //                 .div(totalSupply())
-    //         );
-    // }
+    function rewardPerToken() public view returns (uint256) {
+        if (couponsIssued == 0) {
+            return rewardPerTokenStored;
+        }
+        return
+            rewardPerTokenStored.add(
+                lastBlockRewardApplicable()
+                    .sub(lastUpdateBlock)
+                    .mul(rewardRate)
+                    .mul(10**18)
+                    .div(couponsIssued)
+            );
+    }
 
-    // function earned(address account) public view returns (uint256) {
-    //     return
-    //         balanceOf(account)
-    //             .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
-    //             .div(10**18);
-    // }
+    function earned(address account) public view returns (uint256) {
+        return
+            userCouponBalances[account]
+                .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
+                .div(10**18);
+    }
 
-    // function startNewDistributionCycle(uint256 amount) internal {
-    //     uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
-    //     rewardRate = couponsIssued.div(blockDuration);
-    //     lastUpdateBlock = block.number;
-    //     periodFinish = block.number.add(blockDuration);
+    function startNewDistributionCycle(uint256 amount) internal {
+        uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
+        rewardRate = couponsIssued.div(blockDuration);
+        lastUpdateBlock = block.number;
+        periodFinish = block.number.add(blockDuration);
 
-    //     emit LogStartNewDistributionCycle(
-    //         poolTotalShare,
-    //         rewardRate,
-    //         periodFinish
-    //     );
-    // }
+        emit LogStartNewDistributionCycle(
+            poolTotalShare,
+            rewardRate,
+            periodFinish
+        );
+    }
 }
