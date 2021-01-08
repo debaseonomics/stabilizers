@@ -1,44 +1,36 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.6.6;
 
-import "@openzeppelin/contracts/math/SafeMath.sol";
+import "./Parameters.sol";
 
-contract Debase {
-    using SafeMath for uint256;
-
+contract Coupons is Parameters {
     event LogRebase(uint256 indexed epoch_, uint256 totalSupply_);
 
-    // Used for authentication
-    address public burnPool;
+    uint256 constant DECIMALS = 18;
+    uint256 constant MAX_UINT256 = ~uint256(0);
+    uint256 constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
 
-    modifier onlyBurnPool() {
-        require(msg.sender == burnPool);
-        _;
+    struct Cycle {
+        uint256 totalGons;
+        uint256 totalSupply;
+        uint256 gonsPerFragment;
+        mapping(address => uint256) gonBalances;
     }
 
-    uint256 private constant DECIMALS = 18;
-    uint256 private constant MAX_UINT256 = ~uint256(0);
-    uint256 private constant INITIAL_FRAGMENTS_SUPPLY = 100000 * 10**DECIMALS;
+    Cycle[] public cycles;
 
-    uint256 private constant TOTAL_GONS =
-        MAX_UINT256 - (MAX_UINT256 % INITIAL_FRAGMENTS_SUPPLY);
+    function startCycle(uint256 supply, bool deletePreviousCycles) internal {
+        if (deletePreviousCycles) {
+            delete cycles;
+        }
 
-    uint256 private constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
+        uint256 totalGons = MAX_UINT256 - (MAX_UINT256 % supply);
+        uint256 totalSupply = supply;
+        uint256 gonsPerFragment = totalGons.div(supply);
+        uint256 gonBalance = supply.mul(gonsPerFragment);
 
-    uint256 private _totalSupply;
-    uint256 private _gonsPerFragment;
-    mapping(address => uint256) private _gonBalances;
-
-    constructor() public {
-        _totalSupply = INITIAL_FRAGMENTS_SUPPLY;
-        _gonsPerFragment = TOTAL_GONS.div(_totalSupply);
-
-        burnPool = msg.sender;
-
-        uint256 debaseDaiPoolVal = _totalSupply;
-        uint256 debaseDaiPoolGons = debaseDaiPoolVal.mul(_gonsPerFragment);
-
-        _gonBalances[msg.sender] = debaseDaiPoolGons;
+        //DO GON BALANCE WHEN YOU CAN!!!!
+        cycles.push(Cycle(totalGons, totalSupply, gonsPerFragment));
     }
 
     /**
@@ -46,45 +38,53 @@ contract Debase {
      * @param supplyDelta The number of new fragment tokens to add into circulation via expansion.
      * @return The total number of fragments after the supply adjustment.
      */
-    function rebase(uint256 epoch, uint256 supplyDelta)
-        external
-        onlyBurnPool
-        returns (uint256)
-    {
+    function rebase(uint256 supplyDelta) internal returns (uint256) {
+        Cycle storage instance = cycles[cycles.length.sub(1)];
+
         if (supplyDelta == 0) {
-            emit LogRebase(epoch, _totalSupply);
-            return _totalSupply;
+            return instance.totalSupply;
         }
 
         if (supplyDelta < 0) {
-            _totalSupply = _totalSupply.sub(supplyDelta);
+            instance.totalSupply = instance.totalSupply.sub(supplyDelta);
         } else {
-            _totalSupply = _totalSupply.add(supplyDelta);
+            instance.totalSupply = instance.totalSupply.add(supplyDelta);
         }
 
-        if (_totalSupply > MAX_SUPPLY) {
-            _totalSupply = MAX_SUPPLY;
+        if (instance.totalSupply > MAX_SUPPLY) {
+            instance.totalSupply = MAX_SUPPLY;
         }
 
-        _gonsPerFragment = TOTAL_GONS.div(_totalSupply);
+        instance.gonsPerFragment = instance.totalGons.div(instance.totalSupply);
 
-        emit LogRebase(epoch, _totalSupply);
-        return _totalSupply;
-    }
-
-    /**
-     * @return The total number of fragments.
-     */
-    function totalSupply() public view returns (uint256) {
-        return _totalSupply;
+        return instance.totalSupply;
     }
 
     /**
      * @param who The address to query.
      * @return The balance of the specified address.
      */
-    function balanceOf(address who) public view returns (uint256) {
-        return _gonBalances[who].div(_gonsPerFragment);
+    function balanceOfLastCycle(address who) public view returns (uint256) {
+        if (cycles.length != 0) {
+            Cycle storage instance = cycles[cycles.length.sub(1)];
+            return instance.gonBalances[who].div(instance.gonsPerFragment);
+        }
+        return 0;
+    }
+
+    /**
+     * @param who The address to query.
+     * @return The balance of the specified address.
+     */
+    function totalBalanceOf(address who) public view returns (uint256) {
+        uint256 balance;
+        for (uint256 index = 0; index < cycles.length; index = index.add(1)) {
+            Cycle storage instance = cycles[index];
+            balance = balance.add(
+                instance.gonBalances[who].div(instance.gonsPerFragment)
+            );
+        }
+        return balance;
     }
 
     /**
@@ -92,12 +92,13 @@ contract Debase {
      * @param to The address to transfer to.
      * @param value The amount to be transferred.
      */
-    function assignCouponsToUser(address to, uint256 value)
-        public
-        onlyBurnPool
-    {
-        uint256 gonValue = value.mul(_gonsPerFragment);
-        _gonBalances[msg.sender] = _gonBalances[msg.sender].sub(gonValue);
-        _gonBalances[to] = _gonBalances[to].add(gonValue);
+    function assignCouponsToUser(address to, uint256 value) internal {
+        Cycle storage instance = cycles[cycles.length.sub(1)];
+
+        uint256 gonValue = value.mul(instance.gonsPerFragment);
+        instance.gonBalances[msg.sender] = instance.gonBalances[msg.sender].sub(
+            gonValue
+        );
+        instance.gonBalances[to] = instance.gonBalances[to].add(gonValue);
     }
 }
