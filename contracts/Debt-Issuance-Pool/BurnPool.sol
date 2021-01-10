@@ -50,6 +50,8 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     uint256 public couponsIssued;
     uint256 public epochs;
     uint256 public couponsPerEpoch;
+    uint256 public couponsRevokePercentage;
+    uint256 public debtToCouponMultiplier;
 
     modifier updateReward(address account) {
         rewardPerTokenStored = rewardPerToken();
@@ -119,7 +121,18 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
             if (lastRebaseWasNotNegative) {
                 couponsIssued = 0;
                 lastRebaseWasNotNegative = false;
+            } else if (couponsIssued != 0) {
+                couponsIssued = couponsIssued.sub(
+                    couponsIssued.mul(couponsRevokePercentage)
+                );
             }
+
+            debtToCouponMultiplier = calculateDebtToCouponsMultiplier(
+                exchangeRate_,
+                mean,
+                oneDivDeviationSqrtTwoPi,
+                twoDeviationSquare
+            );
 
             debtBalance.add(newSupply.mul(circulatingShare).div(10**18));
         } else if (couponsIssued != 0) {
@@ -149,9 +162,12 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     }
 
     function buyDebt(uint256 debtAmountToBuy) external {
+        uint256 couponsToSend = debtAmountToBuy.mul(debtToCouponMultiplier);
+
         debtBalance = debtBalance.sub(debtAmountToBuy);
-        couponsIssued = couponsIssued.add(debtAmountToBuy);
-        debase.transfer(address(this), debtAmountToBuy);
+        couponsIssued = couponsIssued.add(couponsToSend);
+        userCouponBalances[msg.sender] = couponsToSend;
+        debase.transfer(address(this), couponsToSend);
     }
 
     function emergencyWithdraw() external {

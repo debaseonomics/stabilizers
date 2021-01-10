@@ -5,19 +5,16 @@ import "./lib/ABDKMathQuad.sol";
 
 contract CouponsToDebaseCurve {
     bytes16 private MINUS_ONE = 0xbfff0000000000000000000000000000;
-    bytes16 private ONE = 0x3fff0000000000000000000000000000;
-    bytes16 private TWO = 0x40000000000000000000000000000000;
-    bytes16 private SQRT_TWO_PI = 0x400040d931fee3b2061deb32699c0423;
     bytes16 private TENE18 = 0x403abc16d674ec800000000000000000;
 
     function calculateCouponsToDebase(
-        uint256 couponsPerEpoch_,
+        uint256 coupons_,
         uint256 priceDelta_,
         bytes16 mean_,
         bytes16 oneDivDeviationSqrtTwoPi_,
         bytes16 twoDeviationSquare_
     ) public view returns (uint256) {
-        bytes16 couponsPerEpoch = ABDKMathQuad.fromUInt(couponsPerEpoch_);
+        bytes16 coupons = ABDKMathQuad.fromUInt(coupons_);
         bytes16 priceDelta =
             ABDKMathQuad.div(ABDKMathQuad.fromUInt(priceDelta_), TENE18);
 
@@ -39,7 +36,7 @@ contract CouponsToDebaseCurve {
                         oneDivDeviationSqrtTwoPi_,
                         ABDKMathQuad.exp(res2)
                     ),
-                    couponsPerEpoch
+                    coupons
                 )
             );
     }
