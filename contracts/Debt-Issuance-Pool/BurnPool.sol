@@ -10,6 +10,16 @@ import "./lib/SafeMathInt.sol";
 import "./CouponsToDebaseCurve.sol";
 import "./DebtToCouponsCurve.sol";
 
+interface IDebasePolicy {
+    function minRebaseTimeIntervalSec() external view returns (uint256);
+
+    function upperDeviationThreshold() external view returns (uint256);
+
+    function lowerDeviationThreshold() external view returns (uint256);
+
+    function priceTargetRate() external view returns (uint256);
+}
+
 contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
@@ -21,44 +31,49 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         uint256 periodFinish_
     );
 
-    address public policy;
+    IDebasePolicy public policy;
     address public burnPool1;
     address public burnPool2;
 
     IERC20 public debase;
-    uint256 public debtBalance;
-    uint256 public blockDuration;
-    uint256 public rewardRate;
-    uint256 public periodFinish;
-    uint256 public lastUpdateBlock;
-    uint256 public rewardPerTokenStored;
     uint256 public rewardDistributed;
 
     bool public lastRebaseWasNotNegative;
-    uint256 public negativeRebaseCount;
-
-    mapping(address => uint256) userCouponBalances;
-
-    mapping(address => uint256) public userRewardPerTokenPaid;
-    mapping(address => uint256) public rewards;
 
     bytes16 mean;
     bytes16 deviation;
     bytes16 oneDivDeviationSqrtTwoPi;
     bytes16 twoDeviationSquare;
 
-    uint256 public couponsIssued;
     uint256 public epochs;
+    uint256 public epochsRewarded;
     uint256 public couponsPerEpoch;
     uint256 public couponsRevokePercentage;
     uint256 public debtToCouponMultiplier;
 
-    modifier updateReward(address account) {
-        rewardPerTokenStored = rewardPerToken();
-        lastUpdateBlock = lastBlockRewardApplicable();
+    struct RewardCycle {
+        uint256 debtBalance;
+        uint256 couponsIssued;
+        uint256 rewardRate;
+        uint256 periodFinish;
+        uint256 lastUpdateTime;
+        uint256 rewardPerTokenStored;
+        mapping(address => uint256) userCouponBalances;
+        mapping(address => uint256) userRewardPerTokenPaid;
+        mapping(address => uint256) rewards;
+    }
+
+    RewardCycle[] public rewardCycles;
+
+    modifier updateReward(address account, uint256 index) {
+        rewardCycles[index].rewardPerTokenStored = rewardPerToken(index);
+        rewardCycles[index].lastUpdateTime = lastBlockRewardApplicable(index);
         if (account != address(0)) {
-            rewards[account] = earned(account);
-            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+            rewardCycles[index].rewards[account] = earned(account, index);
+            rewardCycles[index].userRewardPerTokenPaid[account] = rewardCycles[
+                index
+            ]
+                .rewardPerTokenStored;
         }
         _;
     }
@@ -77,7 +92,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
     constructor(
         address debase_,
-        address policy_,
+        IDebasePolicy policy_,
         address burnPool1_,
         address burnPool2_
     ) public {
@@ -105,7 +120,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         uint256 debasePolicyBalance
     ) external returns (uint256 rewardAmount_) {
         require(
-            msg.sender == policy,
+            msg.sender == address(policy),
             "Only debase policy contract can call this"
         );
 
@@ -114,39 +129,65 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
         uint256 debaseSupply = debase.totalSupply();
         uint256 circulatingShare = getCirculatinShare();
+        uint256 length = rewardCycles.length;
 
         if (supplyDelta_ < 0) {
             uint256 newSupply = debaseSupply.sub(supplyDeltaScaled);
 
-            if (lastRebaseWasNotNegative) {
-                couponsIssued = 0;
+            if (lastRebaseWasNotNegative || length == 0) {
                 lastRebaseWasNotNegative = false;
-            } else if (couponsIssued != 0) {
-                couponsIssued = couponsIssued.sub(
-                    couponsIssued.mul(couponsRevokePercentage)
+                rewardCycles.push(RewardCycle(0, 0, 0, 0, 0, 0));
+            } else {
+                uint256 lastIndex = length.sub(1);
+
+                rewardCycles[lastIndex].couponsIssued = rewardCycles[lastIndex]
+                    .couponsIssued
+                    .sub(
+                    rewardCycles[lastIndex].couponsIssued.mul(
+                        couponsRevokePercentage
+                    )
                 );
             }
 
+            uint256 index = length.sub(1);
+
+            uint256 targetRate =
+                policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
+
+            uint256 offset = targetRate.sub(exchangeRate_);
+
             debtToCouponMultiplier = calculateDebtToCouponsMultiplier(
-                exchangeRate_,
+                offset,
                 mean,
                 oneDivDeviationSqrtTwoPi,
                 twoDeviationSquare
             );
 
-            debtBalance.add(newSupply.mul(circulatingShare).div(10**18));
-        } else if (couponsIssued != 0) {
-            if (block.number > periodFinish) {
-                debtBalance = 0;
-                negativeRebaseCount = 0;
+            rewardCycles[index].debtBalance.add(
+                newSupply.mul(circulatingShare).div(10**18)
+            );
+        } else if (
+            length != 0 &&
+            rewardCycles[length.sub(1)].couponsIssued != 0 &&
+            epochsRewarded != epochs
+        ) {
+            uint256 index = length.sub(1);
+            epochsRewarded = epochsRewarded.add(1);
+
+            if (block.timestamp > rewardCycles[index].periodFinish) {
                 lastRebaseWasNotNegative = true;
-                couponsPerEpoch = couponsIssued.div(epochs);
+                couponsPerEpoch = rewardCycles[index].couponsIssued.div(epochs);
             }
+
+            uint256 targetRate =
+                policy.priceTargetRate().add(policy.upperDeviationThreshold());
+
+            uint256 offset = exchangeRate_.sub(targetRate);
 
             uint256 debaseToBeRewarded =
                 calculateCouponsToDebase(
                     couponsPerEpoch,
-                    exchangeRate_,
+                    offset,
                     mean,
                     oneDivDeviationSqrtTwoPi,
                     twoDeviationSquare
@@ -162,47 +203,65 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     }
 
     function buyDebt(uint256 debtAmountToBuy) external {
+        uint256 lastIndex = rewardCycles.length.sub(1);
         uint256 couponsToSend = debtAmountToBuy.mul(debtToCouponMultiplier);
 
-        debtBalance = debtBalance.sub(debtAmountToBuy);
-        couponsIssued = couponsIssued.add(couponsToSend);
-        userCouponBalances[msg.sender] = couponsToSend;
+        rewardCycles[lastIndex].debtBalance = rewardCycles[lastIndex]
+            .debtBalance
+            .sub(debtAmountToBuy);
+        rewardCycles[lastIndex].couponsIssued = rewardCycles[lastIndex]
+            .couponsIssued
+            .add(couponsToSend);
+
+        rewardCycles[lastIndex].userCouponBalances[msg.sender] = couponsToSend;
         debase.transfer(address(this), couponsToSend);
     }
 
     function emergencyWithdraw() external {
-        debase.safeTransfer(policy, debase.balanceOf(address(this)));
+        debase.safeTransfer(address(policy), debase.balanceOf(address(this)));
     }
 
-    function lastBlockRewardApplicable() internal view returns (uint256) {
-        return Math.min(block.number, periodFinish);
+    function lastBlockRewardApplicable(uint256 index)
+        internal
+        view
+        returns (uint256)
+    {
+        return Math.min(block.timestamp, rewardCycles[index].periodFinish);
     }
 
-    function rewardPerToken() public view returns (uint256) {
-        if (couponsIssued == 0) {
-            return rewardPerTokenStored;
+    function rewardPerToken(uint256 index) public view returns (uint256) {
+        if (rewardCycles[index].couponsIssued == 0) {
+            return rewardCycles[index].rewardPerTokenStored;
         }
         return
-            rewardPerTokenStored.add(
-                lastBlockRewardApplicable()
-                    .sub(lastUpdateBlock)
-                    .mul(rewardRate)
+            rewardCycles[index].rewardPerTokenStored.add(
+                lastBlockRewardApplicable(index)
+                    .sub(rewardCycles[index].lastUpdateTime)
+                    .mul(rewardCycles[index].rewardRate)
                     .mul(10**18)
-                    .div(couponsIssued)
+                    .div(rewardCycles[index].couponsIssued)
             );
     }
 
-    function earned(address account) public view returns (uint256) {
+    function earned(address account, uint256 index)
+        public
+        view
+        returns (uint256)
+    {
         return
-            userCouponBalances[account]
-                .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
+            rewardCycles[index].userCouponBalances[account]
+                .mul(
+                rewardPerToken(index).sub(
+                    rewardCycles[index].userRewardPerTokenPaid[account]
+                )
+            )
                 .div(10**18);
     }
 
-    function getReward() public updateReward(msg.sender) {
-        uint256 reward = earned(msg.sender);
+    function getReward(uint256 index) public updateReward(msg.sender, index) {
+        uint256 reward = earned(msg.sender, index);
         if (reward > 0) {
-            rewards[msg.sender] = 0;
+            rewardCycles[index].rewards[msg.sender] = 0;
 
             uint256 rewardToClaim =
                 debase.totalSupply().mul(reward).div(10**18);
@@ -214,18 +273,20 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
     function startNewDistributionCycle(uint256 amount)
         internal
-        updateReward(address(0))
+        updateReward(address(0), rewardCycles.length.sub(1))
     {
         uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
+        uint256 duration = policy.minRebaseTimeIntervalSec();
+        uint256 index = rewardCycles.length.sub(1);
 
-        rewardRate = poolTotalShare.div(blockDuration);
-        lastUpdateBlock = block.number;
-        periodFinish = block.number.add(blockDuration);
+        rewardCycles[index].rewardRate = poolTotalShare.div(duration);
+        rewardCycles[index].lastUpdateTime = block.timestamp;
+        rewardCycles[index].periodFinish = block.timestamp.add(duration);
 
         emit LogStartNewDistributionCycle(
             poolTotalShare,
-            rewardRate,
-            periodFinish
+            rewardCycles[index].rewardRate,
+            rewardCycles[index].periodFinish
         );
     }
 }
