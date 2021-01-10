@@ -11,25 +11,24 @@ contract CouponsToDebaseCurve {
     bytes16 private TENE18 = 0x403abc16d674ec800000000000000000;
 
     function calculateCouponsToDebase(
-        uint256 balance,
-        uint256 priceDelta,
-        bytes16 mean,
-        bytes16 oneDivDeviationSqrtTwoPi,
-        bytes16 twoDeviationSquare
+        uint256 couponsPerEpoch_,
+        uint256 priceDelta_,
+        bytes16 mean_,
+        bytes16 oneDivDeviationSqrtTwoPi_,
+        bytes16 twoDeviationSquare_
     ) public view returns (uint256) {
-        bytes16 balance_bytes16 = ABDKMathQuad.fromUInt(balance);
-        bytes16 priceDelta_bytes16 =
-            ABDKMathQuad.div(ABDKMathQuad.fromUInt(priceDelta), TENE18);
+        bytes16 couponsPerEpoch = ABDKMathQuad.fromUInt(couponsPerEpoch_);
+        bytes16 priceDelta =
+            ABDKMathQuad.div(ABDKMathQuad.fromUInt(priceDelta_), TENE18);
 
-        bytes16 res1 =
-            ABDKMathQuad.sub(ABDKMathQuad.ln(priceDelta_bytes16), mean);
+        bytes16 res1 = ABDKMathQuad.sub(ABDKMathQuad.ln(priceDelta), mean_);
 
         bytes16 res2 =
             ABDKMathQuad.mul(
                 MINUS_ONE,
                 ABDKMathQuad.div(
                     ABDKMathQuad.mul(res1, res1),
-                    twoDeviationSquare
+                    twoDeviationSquare_
                 )
             );
 
@@ -37,10 +36,10 @@ contract CouponsToDebaseCurve {
             ABDKMathQuad.toUInt(
                 ABDKMathQuad.mul(
                     ABDKMathQuad.mul(
-                        oneDivDeviationSqrtTwoPi,
+                        oneDivDeviationSqrtTwoPi_,
                         ABDKMathQuad.exp(res2)
                     ),
-                    balance_bytes16
+                    couponsPerEpoch
                 )
             );
     }

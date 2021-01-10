@@ -32,6 +32,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     uint256 public periodFinish;
     uint256 public lastUpdateBlock;
     uint256 public rewardPerTokenStored;
+    uint256 public rewardDistributed;
 
     bool public lastRebaseWasNotNegative;
     uint256 public negativeRebaseCount;
@@ -49,6 +50,16 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     uint256 public couponsIssued;
     uint256 public epochs;
     uint256 public couponsPerEpoch;
+
+    modifier updateReward(address account) {
+        rewardPerTokenStored = rewardPerToken();
+        lastUpdateBlock = lastBlockRewardApplicable();
+        if (account != address(0)) {
+            rewards[account] = earned(account);
+            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+        }
+        _;
+    }
 
     function setMeanAndDeviationWithFormulaConstants(
         bytes16 mean_,
@@ -96,12 +107,14 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
             "Only debase policy contract can call this"
         );
 
-        uint256 supplyDeltaUint = uint256(supplyDelta_.abs());
+        uint256 supplyDeltaScaled =
+            uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
+
         uint256 debaseSupply = debase.totalSupply();
         uint256 circulatingShare = getCirculatinShare();
 
         if (supplyDelta_ < 0) {
-            uint256 newSupply = debaseSupply.sub(supplyDeltaUint);
+            uint256 newSupply = debaseSupply.sub(supplyDeltaScaled);
 
             if (lastRebaseWasNotNegative) {
                 couponsIssued = 0;
@@ -117,19 +130,19 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
                 couponsPerEpoch = couponsIssued.div(epochs);
             }
 
-            uint256 peakDebaseRatio =
+            uint256 debaseToBeRewarded =
                 calculateCouponsToDebase(
-                    debasePolicyBalance,
+                    couponsPerEpoch,
                     exchangeRate_,
                     mean,
                     oneDivDeviationSqrtTwoPi,
                     twoDeviationSquare
                 );
 
-            uint256 debaseToBeRewarded = peakDebaseRatio.mul(couponsPerEpoch);
-            startNewDistributionCycle(debaseToBeRewarded);
-
-            return debaseToBeRewarded;
+            if (debaseToBeRewarded <= debasePolicyBalance) {
+                startNewDistributionCycle(debaseToBeRewarded);
+                return debaseToBeRewarded;
+            }
         }
 
         return 0;
@@ -170,7 +183,23 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
                 .div(10**18);
     }
 
-    function startNewDistributionCycle(uint256 amount) internal {
+    function getReward() public updateReward(msg.sender) {
+        uint256 reward = earned(msg.sender);
+        if (reward > 0) {
+            rewards[msg.sender] = 0;
+
+            uint256 rewardToClaim =
+                debase.totalSupply().mul(reward).div(10**18);
+
+            debase.safeTransfer(msg.sender, rewardToClaim);
+            rewardDistributed = rewardDistributed.add(reward);
+        }
+    }
+
+    function startNewDistributionCycle(uint256 amount)
+        internal
+        updateReward(address(0))
+    {
         uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
 
         rewardRate = poolTotalShare.div(blockDuration);
