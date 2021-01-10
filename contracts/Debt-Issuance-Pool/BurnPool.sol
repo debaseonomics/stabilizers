@@ -5,9 +5,12 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/Math.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./lib/SafeMathInt.sol";
+import "./CouponsToDebaseCurve.sol";
+import "./DebtToCouponsCurve.sol";
 
-contract BurnPool {
+contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
     using SafeMathInt for int256;
@@ -32,16 +35,32 @@ contract BurnPool {
 
     bool public lastRebaseWasNotNegative;
     uint256 public negativeRebaseCount;
-    uint256 public peakDebaseRatio = 2;
 
     mapping(address => uint256) userCouponBalances;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
 
+    bytes16 mean;
+    bytes16 deviation;
+    bytes16 oneDivDeviationSqrtTwoPi;
+    bytes16 twoDeviationSquare;
+
     uint256 public couponsIssued;
     uint256 public epochs;
     uint256 public couponsPerEpoch;
+
+    function setMeanAndDeviationWithFormulaConstants(
+        bytes16 mean_,
+        bytes16 deviation_,
+        bytes16 oneDivDeviationSqrtTwoPi_,
+        bytes16 twoDeviationSquare_
+    ) external onlyOwner {
+        mean = mean_;
+        deviation = deviation_;
+        oneDivDeviationSqrtTwoPi = oneDivDeviationSqrtTwoPi_;
+        twoDeviationSquare = twoDeviationSquare_;
+    }
 
     constructor(
         address debase_,
@@ -97,6 +116,15 @@ contract BurnPool {
                 lastRebaseWasNotNegative = true;
                 couponsPerEpoch = couponsIssued.div(epochs);
             }
+
+            uint256 peakDebaseRatio =
+                calculateCouponsToDebase(
+                    debasePolicyBalance,
+                    exchangeRate_,
+                    mean,
+                    oneDivDeviationSqrtTwoPi,
+                    twoDeviationSquare
+                );
 
             uint256 debaseToBeRewarded = peakDebaseRatio.mul(couponsPerEpoch);
             startNewDistributionCycle(debaseToBeRewarded);

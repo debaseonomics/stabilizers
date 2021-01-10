@@ -4,11 +4,11 @@ pragma solidity >=0.6.6;
 import "./lib/ABDKMathQuad.sol";
 
 contract DebtToCouponsCurve {
-    bytes16 MINUS_ONE = 0xbfff0000000000000000000000000000;
-    bytes16 ONE = 0x3fff0000000000000000000000000000;
-    bytes16 TWO = 0x40000000000000000000000000000000;
-    bytes16 SQRT_TWO_PI = 0x400040d931fee3b2061deb32699c0423;
-    bytes16 TENE18 = 0x403abc16d674ec800000000000000000;
+    bytes16 private MINUS_ONE = 0xbfff0000000000000000000000000000;
+    bytes16 private ONE = 0x3fff0000000000000000000000000000;
+    bytes16 private TWO = 0x40000000000000000000000000000000;
+    bytes16 private SQRT_TWO_PI = 0x400040d931fee3b2061deb32699c0423;
+    bytes16 private TENE18 = 0x403abc16d674ec800000000000000000;
 
     function calculateDebtToCoupons(
         uint256 balance,
