@@ -47,7 +47,6 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
     uint256 public epochs;
     uint256 public epochsRewarded;
-    uint256 public couponsPerEpoch;
     uint256 public couponsRevokePercentage;
     uint256 public debtToCouponMultiplier;
 
@@ -58,6 +57,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         uint256 periodFinish;
         uint256 lastUpdateTime;
         uint256 rewardPerTokenStored;
+        uint256 couponsPerEpoch;
         mapping(address => uint256) userCouponBalances;
         mapping(address => uint256) userRewardPerTokenPaid;
         mapping(address => uint256) rewards;
@@ -102,7 +102,11 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         policy = policy_;
     }
 
-    function getCirculatinShare() internal view returns (uint256) {
+    function getCirculatinSupplyAndShare()
+        internal
+        view
+        returns (uint256, uint256)
+    {
         uint256 totalSupply = debase.totalSupply();
 
         uint256 circulatingSupply =
@@ -110,7 +114,10 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
                 debase.balanceOf(burnPool2)
             );
 
-        return circulatingSupply.mul(10**18).div(totalSupply);
+        return (
+            circulatingSupply,
+            circulatingSupply.mul(10**18).div(totalSupply)
+        );
     }
 
     function checkStabilizerAndGetReward(
@@ -128,7 +135,11 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
             uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
 
         uint256 debaseSupply = debase.totalSupply();
-        uint256 circulatingShare = getCirculatinShare();
+
+        uint256 circulatingBalance;
+        uint256 circulatingShare;
+
+        (circulatingBalance, circulatingShare) = getCirculatinSupplyAndShare();
         uint256 length = rewardCycles.length;
 
         if (supplyDelta_ < 0) {
@@ -136,7 +147,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
             if (lastRebaseWasNotNegative || length == 0) {
                 lastRebaseWasNotNegative = false;
-                rewardCycles.push(RewardCycle(0, 0, 0, 0, 0, 0));
+                rewardCycles.push(RewardCycle(0, 0, 0, 0, 0, 0, 0));
             } else {
                 uint256 lastIndex = length.sub(1);
 
@@ -163,8 +174,11 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
                 twoDeviationSquare
             );
 
+            uint256 newCirculatingBalance =
+                newSupply.mul(circulatingShare).div(10**18);
+
             rewardCycles[index].debtBalance.add(
-                newSupply.mul(circulatingShare).div(10**18)
+                circulatingBalance.sub(newCirculatingBalance)
             );
         } else if (
             length != 0 &&
@@ -176,7 +190,9 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
             if (block.timestamp > rewardCycles[index].periodFinish) {
                 lastRebaseWasNotNegative = true;
-                couponsPerEpoch = rewardCycles[index].couponsIssued.div(epochs);
+                rewardCycles[index].couponsPerEpoch = rewardCycles[index]
+                    .couponsIssued
+                    .div(epochs);
             }
 
             uint256 targetRate =
@@ -186,7 +202,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
             uint256 debaseToBeRewarded =
                 calculateCouponsToDebase(
-                    couponsPerEpoch,
+                    rewardCycles[index].couponsPerEpoch,
                     offset,
                     mean,
                     oneDivDeviationSqrtTwoPi,
