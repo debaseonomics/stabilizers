@@ -120,6 +120,92 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         );
     }
 
+    function whenSupplyDeltaIsNegative(
+        uint256 supplyDeltaScaled,
+        uint256 exchangeRate_,
+        uint256 length
+    ) internal {
+        uint256 debaseSupply = debase.totalSupply();
+
+        uint256 circulatingBalance;
+        uint256 circulatingShare;
+
+        (circulatingBalance, circulatingShare) = getCirculatinSupplyAndShare();
+        uint256 newSupply = debaseSupply.sub(supplyDeltaScaled);
+
+        if (lastRebaseWasNotNegative || length == 0) {
+            lastRebaseWasNotNegative = false;
+            rewardCycles.push(RewardCycle(0, 0, 0, 0, 0, 0, 0));
+        } else {
+            uint256 lastIndex = length.sub(1);
+
+            rewardCycles[lastIndex].couponsIssued = rewardCycles[lastIndex]
+                .couponsIssued
+                .sub(
+                rewardCycles[lastIndex].couponsIssued.mul(
+                    couponsRevokePercentage
+                )
+            );
+        }
+
+        uint256 index = length.sub(1);
+
+        uint256 targetRate =
+            policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
+
+        uint256 offset = targetRate.sub(exchangeRate_);
+
+        debtToCouponMultiplier = calculateDebtToCouponsMultiplier(
+            offset,
+            mean,
+            oneDivDeviationSqrtTwoPi,
+            twoDeviationSquare
+        );
+
+        uint256 newCirculatingBalance =
+            newSupply.mul(circulatingShare).div(10**18);
+
+        rewardCycles[index].debtBalance.add(
+            circulatingBalance.sub(newCirculatingBalance)
+        );
+    }
+
+    function whenSupplyDeltaIsNotNegative(
+        uint256 exchangeRate_,
+        uint256 debasePolicyBalance,
+        uint256 length
+    ) internal returns (uint256) {
+        uint256 index = length.sub(1);
+        epochsRewarded = epochsRewarded.add(1);
+
+        if (block.timestamp > rewardCycles[index].periodFinish) {
+            lastRebaseWasNotNegative = true;
+            rewardCycles[index].couponsPerEpoch = rewardCycles[index]
+                .couponsIssued
+                .div(epochs);
+        }
+
+        uint256 targetRate =
+            policy.priceTargetRate().add(policy.upperDeviationThreshold());
+
+        uint256 offset = exchangeRate_.sub(targetRate);
+
+        uint256 debaseToBeRewarded =
+            calculateCouponsToDebase(
+                rewardCycles[index].couponsPerEpoch,
+                offset,
+                mean,
+                oneDivDeviationSqrtTwoPi,
+                twoDeviationSquare
+            );
+
+        if (debaseToBeRewarded <= debasePolicyBalance) {
+            startNewDistributionCycle(debaseToBeRewarded);
+            return debaseToBeRewarded;
+        }
+        return 0;
+    }
+
     function checkStabilizerAndGetReward(
         int256 supplyDelta_,
         int256 rebaseLag_,
@@ -134,85 +220,21 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         uint256 supplyDeltaScaled =
             uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
 
-        uint256 debaseSupply = debase.totalSupply();
-
-        uint256 circulatingBalance;
-        uint256 circulatingShare;
-
-        (circulatingBalance, circulatingShare) = getCirculatinSupplyAndShare();
         uint256 length = rewardCycles.length;
 
         if (supplyDelta_ < 0) {
-            uint256 newSupply = debaseSupply.sub(supplyDeltaScaled);
-
-            if (lastRebaseWasNotNegative || length == 0) {
-                lastRebaseWasNotNegative = false;
-                rewardCycles.push(RewardCycle(0, 0, 0, 0, 0, 0, 0));
-            } else {
-                uint256 lastIndex = length.sub(1);
-
-                rewardCycles[lastIndex].couponsIssued = rewardCycles[lastIndex]
-                    .couponsIssued
-                    .sub(
-                    rewardCycles[lastIndex].couponsIssued.mul(
-                        couponsRevokePercentage
-                    )
-                );
-            }
-
-            uint256 index = length.sub(1);
-
-            uint256 targetRate =
-                policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
-
-            uint256 offset = targetRate.sub(exchangeRate_);
-
-            debtToCouponMultiplier = calculateDebtToCouponsMultiplier(
-                offset,
-                mean,
-                oneDivDeviationSqrtTwoPi,
-                twoDeviationSquare
-            );
-
-            uint256 newCirculatingBalance =
-                newSupply.mul(circulatingShare).div(10**18);
-
-            rewardCycles[index].debtBalance.add(
-                circulatingBalance.sub(newCirculatingBalance)
-            );
+            whenSupplyDeltaIsNegative(supplyDeltaScaled, exchangeRate_, length);
         } else if (
             length != 0 &&
             rewardCycles[length.sub(1)].couponsIssued != 0 &&
             epochsRewarded != epochs
         ) {
-            uint256 index = length.sub(1);
-            epochsRewarded = epochsRewarded.add(1);
-
-            if (block.timestamp > rewardCycles[index].periodFinish) {
-                lastRebaseWasNotNegative = true;
-                rewardCycles[index].couponsPerEpoch = rewardCycles[index]
-                    .couponsIssued
-                    .div(epochs);
-            }
-
-            uint256 targetRate =
-                policy.priceTargetRate().add(policy.upperDeviationThreshold());
-
-            uint256 offset = exchangeRate_.sub(targetRate);
-
-            uint256 debaseToBeRewarded =
-                calculateCouponsToDebase(
-                    rewardCycles[index].couponsPerEpoch,
-                    offset,
-                    mean,
-                    oneDivDeviationSqrtTwoPi,
-                    twoDeviationSquare
+            return
+                whenSupplyDeltaIsNotNegative(
+                    supplyDeltaScaled,
+                    exchangeRate_,
+                    debasePolicyBalance
                 );
-
-            if (debaseToBeRewarded <= debasePolicyBalance) {
-                startNewDistributionCycle(debaseToBeRewarded);
-                return debaseToBeRewarded;
-            }
         }
 
         return 0;
