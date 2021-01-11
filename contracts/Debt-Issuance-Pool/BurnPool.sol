@@ -34,11 +34,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     IDebasePolicy public policy;
     address public burnPool1;
     address public burnPool2;
-
     IERC20 public debase;
-    uint256 public rewardDistributed;
-
-    bool public lastRebaseWasNotNegative;
 
     bytes16 mean;
     bytes16 deviation;
@@ -46,11 +42,14 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     bytes16 twoDeviationSquare;
 
     uint256 public epochs;
-    uint256 public epochsRewarded;
     uint256 public couponsRevokePercentage;
     uint256 public debtToCouponMultiplier;
+    bool public lastRebaseWasNotNegative;
+    uint256 public totalRewardsDistributed;
 
     struct RewardCycle {
+        uint256 epochsToReward;
+        uint256 epochsRewarded;
         uint256 debtBalance;
         uint256 couponsIssued;
         uint256 rewardRate;
@@ -58,6 +57,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         uint256 lastUpdateTime;
         uint256 rewardPerTokenStored;
         uint256 couponsPerEpoch;
+        uint256 rewardDistributed;
         mapping(address => uint256) userCouponBalances;
         mapping(address => uint256) userRewardPerTokenPaid;
         mapping(address => uint256) rewards;
@@ -66,13 +66,13 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     RewardCycle[] public rewardCycles;
 
     modifier updateReward(address account, uint256 index) {
-        rewardCycles[index].rewardPerTokenStored = rewardPerToken(index);
-        rewardCycles[index].lastUpdateTime = lastBlockRewardApplicable(index);
+        RewardCycle storage instance = rewardCycles[index];
+
+        instance.rewardPerTokenStored = rewardPerToken(index);
+        instance.lastUpdateTime = lastBlockRewardApplicable(index);
         if (account != address(0)) {
-            rewardCycles[index].rewards[account] = earned(account, index);
-            rewardCycles[index].userRewardPerTokenPaid[account] = rewardCycles[
-                index
-            ]
+            instance.rewards[account] = earned(account, index);
+            instance.userRewardPerTokenPaid[account] = rewardCycles[index]
                 .rewardPerTokenStored;
         }
         _;
@@ -133,22 +133,20 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         (circulatingBalance, circulatingShare) = getCirculatinSupplyAndShare();
         uint256 newSupply = debaseSupply.sub(supplyDeltaScaled);
 
+        RewardCycle storage instance;
+
         if (lastRebaseWasNotNegative || length == 0) {
             lastRebaseWasNotNegative = false;
-            rewardCycles.push(RewardCycle(0, 0, 0, 0, 0, 0, 0));
+            rewardCycles.push(RewardCycle(epochs, 0, 0, 0, 0, 0, 0, 0, 0, 0));
         } else {
-            uint256 lastIndex = length.sub(1);
+            instance = rewardCycles[length.sub(1)];
 
-            rewardCycles[lastIndex].couponsIssued = rewardCycles[lastIndex]
-                .couponsIssued
-                .sub(
-                rewardCycles[lastIndex].couponsIssued.mul(
-                    couponsRevokePercentage
-                )
+            instance.couponsIssued = instance.couponsIssued.sub(
+                instance.couponsIssued.mul(couponsRevokePercentage)
             );
         }
 
-        uint256 index = length.sub(1);
+        instance = rewardCycles[length.sub(1)];
 
         uint256 targetRate =
             policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
@@ -165,9 +163,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         uint256 newCirculatingBalance =
             newSupply.mul(circulatingShare).div(10**18);
 
-        rewardCycles[index].debtBalance.add(
-            circulatingBalance.sub(newCirculatingBalance)
-        );
+        instance.debtBalance.add(circulatingBalance.sub(newCirculatingBalance));
     }
 
     function whenSupplyDeltaIsNotNegative(
@@ -175,14 +171,13 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         uint256 debasePolicyBalance,
         uint256 length
     ) internal returns (uint256) {
-        uint256 index = length.sub(1);
-        epochsRewarded = epochsRewarded.add(1);
+        RewardCycle storage instance = rewardCycles[length.sub(1)];
 
-        if (block.timestamp > rewardCycles[index].periodFinish) {
+        instance.epochsRewarded = instance.epochsRewarded.add(1);
+
+        if (block.timestamp > instance.periodFinish) {
             lastRebaseWasNotNegative = true;
-            rewardCycles[index].couponsPerEpoch = rewardCycles[index]
-                .couponsIssued
-                .div(epochs);
+            instance.couponsPerEpoch = instance.couponsIssued.div(epochs);
         }
 
         uint256 targetRate =
@@ -192,7 +187,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
         uint256 debaseToBeRewarded =
             calculateCouponsToDebase(
-                rewardCycles[index].couponsPerEpoch,
+                instance.couponsPerEpoch,
                 offset,
                 mean,
                 oneDivDeviationSqrtTwoPi,
@@ -227,7 +222,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         } else if (
             length != 0 &&
             rewardCycles[length.sub(1)].couponsIssued != 0 &&
-            epochsRewarded != epochs
+            rewardCycles[length.sub(1)].epochsRewarded != epochs
         ) {
             return
                 whenSupplyDeltaIsNotNegative(
@@ -241,17 +236,13 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     }
 
     function buyDebt(uint256 debtAmountToBuy) external {
-        uint256 lastIndex = rewardCycles.length.sub(1);
+        RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
         uint256 couponsToSend = debtAmountToBuy.mul(debtToCouponMultiplier);
 
-        rewardCycles[lastIndex].debtBalance = rewardCycles[lastIndex]
-            .debtBalance
-            .sub(debtAmountToBuy);
-        rewardCycles[lastIndex].couponsIssued = rewardCycles[lastIndex]
-            .couponsIssued
-            .add(couponsToSend);
+        instance.debtBalance = instance.debtBalance.sub(debtAmountToBuy);
+        instance.couponsIssued = instance.couponsIssued.add(couponsToSend);
 
-        rewardCycles[lastIndex].userCouponBalances[msg.sender] = couponsToSend;
+        instance.userCouponBalances[msg.sender] = couponsToSend;
         debase.transfer(address(this), couponsToSend);
     }
 
@@ -268,16 +259,17 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     }
 
     function rewardPerToken(uint256 index) public view returns (uint256) {
-        if (rewardCycles[index].couponsIssued == 0) {
-            return rewardCycles[index].rewardPerTokenStored;
+        RewardCycle memory instance = rewardCycles[index];
+        if (instance.couponsIssued == 0) {
+            return instance.rewardPerTokenStored;
         }
         return
-            rewardCycles[index].rewardPerTokenStored.add(
+            instance.rewardPerTokenStored.add(
                 lastBlockRewardApplicable(index)
-                    .sub(rewardCycles[index].lastUpdateTime)
-                    .mul(rewardCycles[index].rewardRate)
+                    .sub(instance.lastUpdateTime)
+                    .mul(instance.rewardRate)
                     .mul(10**18)
-                    .div(rewardCycles[index].couponsIssued)
+                    .div(instance.couponsIssued)
             );
     }
 
@@ -299,13 +291,16 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     function getReward(uint256 index) public updateReward(msg.sender, index) {
         uint256 reward = earned(msg.sender, index);
         if (reward > 0) {
-            rewardCycles[index].rewards[msg.sender] = 0;
+            RewardCycle storage instance = rewardCycles[index];
+
+            instance.rewards[msg.sender] = 0;
 
             uint256 rewardToClaim =
                 debase.totalSupply().mul(reward).div(10**18);
 
+            instance.rewardDistributed = instance.rewardDistributed.add(reward);
+            totalRewardsDistributed = totalRewardsDistributed.add(reward);
             debase.safeTransfer(msg.sender, rewardToClaim);
-            rewardDistributed = rewardDistributed.add(reward);
         }
     }
 
@@ -313,18 +308,18 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         internal
         updateReward(address(0), rewardCycles.length.sub(1))
     {
+        RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
         uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
         uint256 duration = policy.minRebaseTimeIntervalSec();
-        uint256 index = rewardCycles.length.sub(1);
 
-        rewardCycles[index].rewardRate = poolTotalShare.div(duration);
-        rewardCycles[index].lastUpdateTime = block.timestamp;
-        rewardCycles[index].periodFinish = block.timestamp.add(duration);
+        instance.rewardRate = poolTotalShare.div(duration);
+        instance.lastUpdateTime = block.timestamp;
+        instance.periodFinish = block.timestamp.add(duration);
 
         emit LogStartNewDistributionCycle(
             poolTotalShare,
-            rewardCycles[index].rewardRate,
-            rewardCycles[index].periodFinish
+            instance.rewardRate,
+            instance.periodFinish
         );
     }
 }
