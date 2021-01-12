@@ -42,7 +42,6 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
     bytes16 twoDeviationSquare;
 
     uint256 public epochs;
-    uint256 public couponsRevokePercentage;
     uint256 public debtToCouponMultiplier;
     bool public lastRebaseWasNotNegative;
     uint256 public totalRewardsDistributed;
@@ -69,7 +68,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         RewardCycle storage instance = rewardCycles[index];
 
         instance.rewardPerTokenStored = rewardPerToken(index);
-        instance.lastUpdateTime = lastBlockRewardApplicable(index);
+        instance.lastUpdateTime = lastRewardApplicable(index);
         if (account != address(0)) {
             instance.rewards[account] = earned(account, index);
             instance.userRewardPerTokenPaid[account] = rewardCycles[index]
@@ -138,12 +137,6 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         if (lastRebaseWasNotNegative || length == 0) {
             lastRebaseWasNotNegative = false;
             rewardCycles.push(RewardCycle(epochs, 0, 0, 0, 0, 0, 0, 0, 0, 0));
-        } else {
-            instance = rewardCycles[length.sub(1)];
-
-            instance.couponsIssued = instance.couponsIssued.sub(
-                instance.couponsIssued.mul(couponsRevokePercentage)
-            );
         }
 
         instance = rewardCycles[length.sub(1)];
@@ -237,7 +230,8 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
     function buyDebt(uint256 debtAmountToBuy) external {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
-        uint256 couponsToSend = debtAmountToBuy.mul(debtToCouponMultiplier);
+        uint256 couponsToSend =
+            debtAmountToBuy.mul(debtToCouponMultiplier).div(10**18);
 
         instance.debtBalance = instance.debtBalance.sub(debtAmountToBuy);
         instance.couponsIssued = instance.couponsIssued.add(couponsToSend);
@@ -250,7 +244,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         debase.safeTransfer(address(policy), debase.balanceOf(address(this)));
     }
 
-    function lastBlockRewardApplicable(uint256 index)
+    function lastRewardApplicable(uint256 index)
         internal
         view
         returns (uint256)
@@ -265,7 +259,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         }
         return
             instance.rewardPerTokenStored.add(
-                lastBlockRewardApplicable(index)
+                lastRewardApplicable(index)
                     .sub(instance.lastUpdateTime)
                     .mul(instance.rewardRate)
                     .mul(10**18)
