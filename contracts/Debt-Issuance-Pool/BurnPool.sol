@@ -41,16 +41,15 @@ contract BurnPool is Ownable, Curve {
     bytes16 twoDeviationSquare;
 
     uint256 public epochs;
-    uint256 public debtToCouponMultiplier;
+    uint256 public couponPremium;
     bool public lastRebaseWasNotNegative;
     uint256 public totalRewardsDistributed;
 
-    uint256 public rewardsCap;
+    uint256 public rewardsAccured;
 
     struct RewardCycle {
         uint256 epochsToReward;
         uint256 epochsRewarded;
-        uint256 debtBalance;
         uint256 couponsIssued;
         uint256 rewardRate;
         uint256 periodFinish;
@@ -90,6 +89,11 @@ contract BurnPool is Ownable, Curve {
         twoDeviationSquare = twoDeviationSquare_;
     }
 
+    function setCouponPremium(uint256 couponPremium_) external onlyOwner {
+        require(couponPremium != 0);
+        couponPremium = couponPremium_;
+    }
+
     constructor(
         address debase_,
         IDebasePolicy policy_,
@@ -102,7 +106,7 @@ contract BurnPool is Ownable, Curve {
         policy = policy_;
     }
 
-    function getNewCirculatingBalance(uint256 supplyDeltaScaled)
+    function circBalanceChange(uint256 supplyDeltaScaled)
         internal
         view
         returns (uint256)
@@ -117,9 +121,7 @@ contract BurnPool is Ownable, Curve {
         uint256 circulatingShare =
             circulatingSupply.mul(10**18).div(totalSupply);
 
-        uint256 newSupply = totalSupply.add(supplyDeltaScaled);
-
-        return newSupply.mul(circulatingShare).div(10**18);
+        return supplyDeltaScaled.mul(circulatingShare).div(10**18);
     }
 
     function supplyDeltaIsNegative(uint256 length) internal {
@@ -127,7 +129,7 @@ contract BurnPool is Ownable, Curve {
 
         if (lastRebaseWasNotNegative || length == 0) {
             lastRebaseWasNotNegative = false;
-            rewardCycles.push(RewardCycle(epochs, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+            rewardCycles.push(RewardCycle(epochs, 0, 0, 0, 0, 0, 0, 0, 0));
         }
 
         instance = rewardCycles[length.sub(1)];
@@ -141,10 +143,8 @@ contract BurnPool is Ownable, Curve {
     ) internal returns (uint256) {
         RewardCycle storage instance = rewardCycles[length.sub(1)];
 
-        uint256 newCirculatingBalance =
-            getNewCirculatingBalance(supplyDeltaScaled);
-
         instance.epochsRewarded = instance.epochsRewarded.add(1);
+        rewardsAccured.add(circBalanceChange(supplyDeltaScaled));
 
         if (block.timestamp > instance.periodFinish) {
             lastRebaseWasNotNegative = true;
@@ -207,16 +207,20 @@ contract BurnPool is Ownable, Curve {
         return 0;
     }
 
-    function buyDebt(uint256 debtAmountToBuy) external {
+    function buyDebt(uint256 debaseSent) external {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
-        uint256 couponsToSend =
-            debtAmountToBuy.mul(debtToCouponMultiplier).div(10**18);
 
-        instance.debtBalance = instance.debtBalance.sub(debtAmountToBuy);
-        instance.couponsIssued = instance.couponsIssued.add(couponsToSend);
+        uint256 couponsIssuedToUser = debaseSent.mul(couponPremium);
+        instance.couponsIssued = instance.couponsIssued.add(
+            couponsIssuedToUser
+        );
 
-        instance.userCouponBalances[msg.sender] = couponsToSend;
-        debase.transfer(address(this), couponsToSend);
+        instance.userCouponBalances[msg.sender] = instance.userCouponBalances[
+            msg.sender
+        ]
+            .add(couponsIssuedToUser);
+
+        debase.transfer(address(this), debaseSent);
     }
 
     function emergencyWithdraw() external {
@@ -233,6 +237,7 @@ contract BurnPool is Ownable, Curve {
 
     function rewardPerToken(uint256 index) public view returns (uint256) {
         RewardCycle memory instance = rewardCycles[index];
+
         if (instance.couponsIssued == 0) {
             return instance.rewardPerTokenStored;
         }
@@ -263,6 +268,7 @@ contract BurnPool is Ownable, Curve {
 
     function getReward(uint256 index) public updateReward(msg.sender, index) {
         uint256 reward = earned(msg.sender, index);
+
         if (reward > 0) {
             RewardCycle storage instance = rewardCycles[index];
 
@@ -282,6 +288,7 @@ contract BurnPool is Ownable, Curve {
         updateReward(address(0), rewardCycles.length.sub(1))
     {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
+
         uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
         uint256 duration = policy.minRebaseTimeIntervalSec();
 
