@@ -45,6 +45,8 @@ contract BurnPool is Ownable, Curve {
     bool public lastRebaseWasNotNegative;
     uint256 public totalRewardsDistributed;
 
+    uint256 public rewardsCap;
+
     struct RewardCycle {
         uint256 epochsToReward;
         uint256 epochsRewarded;
@@ -100,10 +102,10 @@ contract BurnPool is Ownable, Curve {
         policy = policy_;
     }
 
-    function getCirculatinSupplyAndShare()
+    function getNewCirculatingBalance(uint256 supplyDeltaScaled)
         internal
         view
-        returns (uint256, uint256)
+        returns (uint256)
     {
         uint256 totalSupply = debase.totalSupply();
 
@@ -112,25 +114,15 @@ contract BurnPool is Ownable, Curve {
                 debase.balanceOf(burnPool2)
             );
 
-        return (
-            circulatingSupply,
-            circulatingSupply.mul(10**18).div(totalSupply)
-        );
+        uint256 circulatingShare =
+            circulatingSupply.mul(10**18).div(totalSupply);
+
+        uint256 newSupply = totalSupply.add(supplyDeltaScaled);
+
+        return newSupply.mul(circulatingShare).div(10**18);
     }
 
-    function whenSupplyDeltaIsNegative(
-        uint256 supplyDeltaScaled,
-        uint256 exchangeRate_,
-        uint256 length
-    ) internal {
-        uint256 debaseSupply = debase.totalSupply();
-
-        uint256 circulatingBalance;
-        uint256 circulatingShare;
-
-        (circulatingBalance, circulatingShare) = getCirculatinSupplyAndShare();
-        uint256 newSupply = debaseSupply.sub(supplyDeltaScaled);
-
+    function supplyDeltaIsNegative(uint256 length) internal {
         RewardCycle storage instance;
 
         if (lastRebaseWasNotNegative || length == 0) {
@@ -139,31 +131,18 @@ contract BurnPool is Ownable, Curve {
         }
 
         instance = rewardCycles[length.sub(1)];
-
-        uint256 targetRate =
-            policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
-
-        uint256 offset = targetRate.sub(exchangeRate_);
-
-        // debtToCouponMultiplier = calculateDebtToCouponsMultiplier(
-        //     offset,
-        //     mean,
-        //     oneDivDeviationSqrtTwoPi,
-        //     twoDeviationSquare
-        // );
-
-        uint256 newCirculatingBalance =
-            newSupply.mul(circulatingShare).div(10**18);
-
-        instance.debtBalance.add(circulatingBalance.sub(newCirculatingBalance));
     }
 
-    function whenSupplyDeltaIsNotNegative(
+    function supplyDeltaIsNotNegative(
         uint256 exchangeRate_,
+        uint256 supplyDeltaScaled,
         uint256 debasePolicyBalance,
         uint256 length
     ) internal returns (uint256) {
         RewardCycle storage instance = rewardCycles[length.sub(1)];
+
+        uint256 newCirculatingBalance =
+            getNewCirculatingBalance(supplyDeltaScaled);
 
         instance.epochsRewarded = instance.epochsRewarded.add(1);
 
@@ -210,17 +189,18 @@ contract BurnPool is Ownable, Curve {
         uint256 length = rewardCycles.length;
 
         if (supplyDelta_ < 0) {
-            whenSupplyDeltaIsNegative(supplyDeltaScaled, exchangeRate_, length);
+            supplyDeltaIsNegative(length);
         } else if (
             length != 0 &&
             rewardCycles[length.sub(1)].couponsIssued != 0 &&
             rewardCycles[length.sub(1)].epochsRewarded != epochs
         ) {
             return
-                whenSupplyDeltaIsNotNegative(
-                    supplyDeltaScaled,
+                supplyDeltaIsNotNegative(
                     exchangeRate_,
-                    debasePolicyBalance
+                    supplyDeltaScaled,
+                    debasePolicyBalance,
+                    length
                 );
         }
 
