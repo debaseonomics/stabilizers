@@ -3,16 +3,18 @@ pragma solidity >=0.6.6;
 
 import "./lib/ABDKMathQuad.sol";
 
-contract DebtToCouponsCurve {
+contract Curve {
     bytes16 private MINUS_ONE = 0xbfff0000000000000000000000000000;
     bytes16 private TENE18 = 0x403abc16d674ec800000000000000000;
 
-    function calculateDebtToCouponsMultiplier(
+    function getCurvePoint(
+        uint256 coupons_,
         uint256 priceDelta_,
         bytes16 mean_,
         bytes16 oneDivDeviationSqrtTwoPi_,
         bytes16 twoDeviationSquare_
     ) public view returns (uint256) {
+        bytes16 coupons = ABDKMathQuad.fromUInt(coupons_);
         bytes16 priceDelta =
             ABDKMathQuad.div(ABDKMathQuad.fromUInt(priceDelta_), TENE18);
 
@@ -34,7 +36,7 @@ contract DebtToCouponsCurve {
                         oneDivDeviationSqrtTwoPi_,
                         ABDKMathQuad.exp(res2)
                     ),
-                    TENE18
+                    coupons
                 )
             );
     }

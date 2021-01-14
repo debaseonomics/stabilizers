@@ -7,8 +7,7 @@ import "@openzeppelin/contracts/math/Math.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./lib/SafeMathInt.sol";
-import "./CouponsToDebaseCurve.sol";
-import "./DebtToCouponsCurve.sol";
+import "./Curve.sol";
 
 interface IDebasePolicy {
     function minRebaseTimeIntervalSec() external view returns (uint256);
@@ -20,7 +19,7 @@ interface IDebasePolicy {
     function priceTargetRate() external view returns (uint256);
 }
 
-contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
+contract BurnPool is Ownable, Curve {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
     using SafeMathInt for int256;
@@ -146,12 +145,12 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
 
         uint256 offset = targetRate.sub(exchangeRate_);
 
-        debtToCouponMultiplier = calculateDebtToCouponsMultiplier(
-            offset,
-            mean,
-            oneDivDeviationSqrtTwoPi,
-            twoDeviationSquare
-        );
+        // debtToCouponMultiplier = calculateDebtToCouponsMultiplier(
+        //     offset,
+        //     mean,
+        //     oneDivDeviationSqrtTwoPi,
+        //     twoDeviationSquare
+        // );
 
         uint256 newCirculatingBalance =
             newSupply.mul(circulatingShare).div(10**18);
@@ -179,7 +178,7 @@ contract BurnPool is Ownable, CouponsToDebaseCurve, DebtToCouponsCurve {
         uint256 offset = exchangeRate_.sub(targetRate);
 
         uint256 debaseToBeRewarded =
-            calculateCouponsToDebase(
+            getCurvePoint(
                 instance.couponsPerEpoch,
                 offset,
                 mean,
