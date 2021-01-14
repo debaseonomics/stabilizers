@@ -41,18 +41,17 @@ contract BurnPool is Ownable, Curve {
     bytes16 twoDeviationSquare;
 
     uint256 public epochs;
-    uint256 public couponPremium;
     uint256 public totalRewardsDistributed;
 
     uint256 public rewardsAccured;
 
-    enum Rebase {NEGATIVE, NOT_NEGATIVE, NONE}
+    enum Rebase {POSITIVE, NETURAL, NEGATIVE, NONE}
     Rebase public lastRebase;
 
     struct RewardCycle {
         uint256 epochsToReward;
-        uint256 epochsRewarded;
         uint256 rewardAmount;
+        uint256 epochsRewarded;
         uint256 couponsIssued;
         uint256 rewardRate;
         uint256 periodFinish;
@@ -92,11 +91,6 @@ contract BurnPool is Ownable, Curve {
         twoDeviationSquare = twoDeviationSquare_;
     }
 
-    function setCouponPremium(uint256 couponPremium_) external onlyOwner {
-        require(couponPremium != 0);
-        couponPremium = couponPremium_;
-    }
-
     constructor(
         address debase_,
         IDebasePolicy policy_,
@@ -130,41 +124,46 @@ contract BurnPool is Ownable, Curve {
     }
 
     function startNewCouponCycle() internal {
-        if (lastRebase == Rebase.NONE || lastRebase == Rebase.NOT_NEGATIVE) {
+        if (lastRebase != Rebase.NEGATIVE) {
             lastRebase = Rebase.NEGATIVE;
             rewardCycles.push(
-                RewardCycle(epochs, 0, rewardsAccured, 0, 0, 0, 0, 0, 0, 0)
+                RewardCycle(epochs, rewardsAccured, 0, 0, 0, 0, 0, 0, 0, 0)
             );
             rewardsAccured = 0;
         }
     }
 
-    function issueRewards(uint256 exchangeRate_, uint256 debasePolicyBalance)
-        internal
-        returns (uint256)
-    {
+    function issueRewards(
+        int256 supplyDelta_,
+        uint256 exchangeRate_,
+        uint256 debasePolicyBalance
+    ) internal returns (uint256) {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
-        if (lastRebase == Rebase.NEGATIVE) {
-            lastRebase = Rebase.NOT_NEGATIVE;
+        if (lastRebase != Rebase.POSITIVE) {
+            lastRebase = Rebase.POSITIVE;
             instance.couponsPerEpoch = instance.couponsIssued.div(epochs);
         }
 
         instance.epochsRewarded = instance.epochsRewarded.add(1);
 
-        uint256 targetRate =
-            policy.priceTargetRate().add(policy.upperDeviationThreshold());
+        uint256 debaseToBeRewarded;
 
-        uint256 offset = exchangeRate_.sub(targetRate);
+        if (supplyDelta_ != 0) {
+            uint256 targetRate =
+                policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
-        uint256 debaseToBeRewarded =
-            getCurvePoint(
+            uint256 offset = exchangeRate_.sub(targetRate);
+            debaseToBeRewarded = getCurvePoint(
                 instance.couponsPerEpoch,
                 offset,
                 mean,
                 oneDivDeviationSqrtTwoPi,
                 twoDeviationSquare
             );
+        } else {
+            debaseToBeRewarded = instance.couponsPerEpoch;
+        }
 
         if (debaseToBeRewarded <= debasePolicyBalance) {
             startNewDistributionCycle(debaseToBeRewarded);
@@ -184,24 +183,30 @@ contract BurnPool is Ownable, Curve {
             "Only debase policy contract can call this"
         );
 
-        if (supplyDelta_ < 0) {
+        if (supplyDelta_ <= 0) {
             startNewCouponCycle();
+        } else if (supplyDelta_ == 0) {
+            lastRebase = Rebase.NETURAL;
         } else {
-            if (supplyDelta_ != 0) {
-                uint256 supplyDeltaScaled =
-                    uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
-
-                rewardsAccured.add(circBalanceChange(supplyDeltaScaled));
-            }
-
             uint256 length = rewardCycles.length;
 
+            uint256 supplyDeltaScaled =
+                uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
+
+            rewardsAccured.add(circBalanceChange(supplyDeltaScaled));
+
             if (
+                lastRebase == Rebase.NETURAL &&
                 length != 0 &&
                 rewardCycles[length.sub(1)].couponsIssued != 0 &&
-                rewardCycles[length.sub(1)].epochsRewarded != epochs
+                rewardCycles[length.sub(1)].epochsRewarded < epochs
             ) {
-                return issueRewards(exchangeRate_, debasePolicyBalance);
+                return
+                    issueRewards(
+                        supplyDelta_,
+                        exchangeRate_,
+                        debasePolicyBalance
+                    );
             }
         }
 
@@ -211,15 +216,12 @@ contract BurnPool is Ownable, Curve {
     function buyDebt(uint256 debaseSent) external {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
-        uint256 couponsIssuedToUser = debaseSent.mul(couponPremium);
-        instance.couponsIssued = instance.couponsIssued.add(
-            couponsIssuedToUser
-        );
-
         instance.userCouponBalances[msg.sender] = instance.userCouponBalances[
             msg.sender
         ]
-            .add(couponsIssuedToUser);
+            .add(debaseSent);
+
+        instance.couponsIssued = instance.couponsIssued.add(debaseSent);
 
         debase.transfer(address(this), debaseSent);
     }
