@@ -214,6 +214,7 @@ contract BurnPool is Ownable, Curve {
     }
 
     function buyDebt(uint256 debaseSent) external {
+        require(lastRebase == Rebase.NEGATIVE);
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
         instance.userCouponBalances[msg.sender] = instance.userCouponBalances[
@@ -270,6 +271,8 @@ contract BurnPool is Ownable, Curve {
     }
 
     function getReward(uint256 index) public updateReward(msg.sender, index) {
+        require(lastRebase == Rebase.POSITIVE);
+
         uint256 reward = earned(msg.sender, index);
 
         if (reward > 0) {
