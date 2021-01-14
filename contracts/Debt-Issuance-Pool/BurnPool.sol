@@ -42,14 +42,17 @@ contract BurnPool is Ownable, Curve {
 
     uint256 public epochs;
     uint256 public couponPremium;
-    bool public lastRebaseWasNotNegative;
     uint256 public totalRewardsDistributed;
 
     uint256 public rewardsAccured;
 
+    enum Rebase {NEGATIVE, NOT_NEGATIVE, NONE}
+    Rebase public lastRebase;
+
     struct RewardCycle {
         uint256 epochsToReward;
         uint256 epochsRewarded;
+        uint256 rewardAmount;
         uint256 couponsIssued;
         uint256 rewardRate;
         uint256 periodFinish;
@@ -104,6 +107,8 @@ contract BurnPool is Ownable, Curve {
         burnPool1 = burnPool1_;
         burnPool2 = burnPool2_;
         policy = policy_;
+
+        lastRebase = Rebase.NONE;
     }
 
     function circBalanceChange(uint256 supplyDeltaScaled)
@@ -124,32 +129,28 @@ contract BurnPool is Ownable, Curve {
         return supplyDeltaScaled.mul(circulatingShare).div(10**18);
     }
 
-    function supplyDeltaIsNegative(uint256 length) internal {
-        RewardCycle storage instance;
-
-        if (lastRebaseWasNotNegative || length == 0) {
-            lastRebaseWasNotNegative = false;
-            rewardCycles.push(RewardCycle(epochs, 0, 0, 0, 0, 0, 0, 0, 0));
+    function startNewCouponCycle() internal {
+        if (lastRebase == Rebase.NONE || lastRebase == Rebase.NOT_NEGATIVE) {
+            lastRebase = Rebase.NEGATIVE;
+            rewardCycles.push(
+                RewardCycle(epochs, 0, rewardsAccured, 0, 0, 0, 0, 0, 0, 0)
+            );
+            rewardsAccured = 0;
         }
-
-        instance = rewardCycles[length.sub(1)];
     }
 
-    function supplyDeltaIsNotNegative(
-        uint256 exchangeRate_,
-        uint256 supplyDeltaScaled,
-        uint256 debasePolicyBalance,
-        uint256 length
-    ) internal returns (uint256) {
-        RewardCycle storage instance = rewardCycles[length.sub(1)];
+    function issueRewards(uint256 exchangeRate_, uint256 debasePolicyBalance)
+        internal
+        returns (uint256)
+    {
+        RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
-        instance.epochsRewarded = instance.epochsRewarded.add(1);
-        rewardsAccured.add(circBalanceChange(supplyDeltaScaled));
-
-        if (block.timestamp > instance.periodFinish) {
-            lastRebaseWasNotNegative = true;
+        if (lastRebase == Rebase.NEGATIVE) {
+            lastRebase = Rebase.NOT_NEGATIVE;
             instance.couponsPerEpoch = instance.couponsIssued.div(epochs);
         }
+
+        instance.epochsRewarded = instance.epochsRewarded.add(1);
 
         uint256 targetRate =
             policy.priceTargetRate().add(policy.upperDeviationThreshold());
@@ -183,25 +184,25 @@ contract BurnPool is Ownable, Curve {
             "Only debase policy contract can call this"
         );
 
-        uint256 supplyDeltaScaled =
-            uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
-
-        uint256 length = rewardCycles.length;
-
         if (supplyDelta_ < 0) {
-            supplyDeltaIsNegative(length);
-        } else if (
-            length != 0 &&
-            rewardCycles[length.sub(1)].couponsIssued != 0 &&
-            rewardCycles[length.sub(1)].epochsRewarded != epochs
-        ) {
-            return
-                supplyDeltaIsNotNegative(
-                    exchangeRate_,
-                    supplyDeltaScaled,
-                    debasePolicyBalance,
-                    length
-                );
+            startNewCouponCycle();
+        } else {
+            if (supplyDelta_ != 0) {
+                uint256 supplyDeltaScaled =
+                    uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
+
+                rewardsAccured.add(circBalanceChange(supplyDeltaScaled));
+            }
+
+            uint256 length = rewardCycles.length;
+
+            if (
+                length != 0 &&
+                rewardCycles[length.sub(1)].couponsIssued != 0 &&
+                rewardCycles[length.sub(1)].epochsRewarded != epochs
+            ) {
+                return issueRewards(exchangeRate_, debasePolicyBalance);
+            }
         }
 
         return 0;
