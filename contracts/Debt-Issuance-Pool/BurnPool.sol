@@ -55,6 +55,7 @@ contract BurnPool is Ownable, Curve {
     uint256 public oracleNextUpdate;
 
     uint256 public rewardsAccured;
+    uint256 public curveShifer;
 
     enum Rebase {POSITIVE, NETURAL, NEGATIVE, NONE}
     Rebase public lastRebase;
@@ -168,7 +169,7 @@ contract BurnPool is Ownable, Curve {
             uint256 targetRate =
                 policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
-            uint256 offset = exchangeRate_.sub(targetRate);
+            uint256 offset = exchangeRate_.sub(targetRate).add(curveShifer);
             debaseToBeRewarded = getCurvePoint(
                 instance.couponsPerEpoch,
                 offset,
@@ -211,7 +212,7 @@ contract BurnPool is Ownable, Curve {
             rewardsAccured.add(circBalanceChange(supplyDeltaScaled));
 
             if (
-                lastRebase == Rebase.NETURAL &&
+                lastRebase != Rebase.NETURAL &&
                 length != 0 &&
                 rewardCycles[length.sub(1)].couponsIssued != 0 &&
                 rewardCycles[length.sub(1)].epochsRewarded < epochs
@@ -306,7 +307,7 @@ contract BurnPool is Ownable, Curve {
     }
 
     function getReward(uint256 index) public updateReward(msg.sender, index) {
-        require(lastRebase == Rebase.POSITIVE);
+        require(lastRebase == Rebase.POSITIVE || lastRebase == Rebase.NEGATIVE);
 
         uint256 reward = earned(msg.sender, index);
 
@@ -320,6 +321,7 @@ contract BurnPool is Ownable, Curve {
 
             instance.rewardDistributed = instance.rewardDistributed.add(reward);
             totalRewardsDistributed = totalRewardsDistributed.add(reward);
+
             debase.safeTransfer(msg.sender, rewardToClaim);
         }
     }
