@@ -55,7 +55,7 @@ contract BurnPool is Ownable, Curve {
     uint256 public oracleNextUpdate;
 
     uint256 public rewardsAccured;
-    uint256 public curveShifer;
+    uint256 public curveShifter;
 
     enum Rebase {POSITIVE, NETURAL, NEGATIVE, NONE}
     Rebase public lastRebase;
@@ -169,7 +169,8 @@ contract BurnPool is Ownable, Curve {
             uint256 targetRate =
                 policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
-            uint256 offset = exchangeRate_.sub(targetRate).add(curveShifer);
+            uint256 offset = exchangeRate_.sub(targetRate).add(curveShifter);
+
             debaseToBeRewarded = getCurvePoint(
                 instance.couponsPerEpoch,
                 offset,
