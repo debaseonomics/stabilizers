@@ -19,6 +19,12 @@ interface IDebasePolicy {
     function priceTargetRate() external view returns (uint256);
 }
 
+interface IOracle {
+    function getData() external returns (uint256, bool);
+
+    function lastPrice() external view returns (uint256);
+}
+
 contract BurnPool is Ownable, Curve {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
@@ -31,9 +37,11 @@ contract BurnPool is Ownable, Curve {
     );
 
     IDebasePolicy public policy;
+    IERC20 public debase;
+    IOracle public oracle;
+
     address public burnPool1;
     address public burnPool2;
-    IERC20 public debase;
 
     bytes16 mean;
     bytes16 deviation;
@@ -42,6 +50,9 @@ contract BurnPool is Ownable, Curve {
 
     uint256 public epochs;
     uint256 public totalRewardsDistributed;
+
+    uint256 public oraclePeriod;
+    uint256 public oracleNextUpdate;
 
     uint256 public rewardsAccured;
 
@@ -93,6 +104,7 @@ contract BurnPool is Ownable, Curve {
 
     constructor(
         address debase_,
+        IOracle oracle_,
         IDebasePolicy policy_,
         address burnPool1_,
         address burnPool2_
@@ -101,6 +113,7 @@ contract BurnPool is Ownable, Curve {
         burnPool1 = burnPool1_;
         burnPool2 = burnPool2_;
         policy = policy_;
+        oracle = oracle_;
 
         lastRebase = Rebase.NONE;
     }
@@ -130,6 +143,8 @@ contract BurnPool is Ownable, Curve {
                 RewardCycle(epochs, rewardsAccured, 0, 0, 0, 0, 0, 0, 0, 0)
             );
             rewardsAccured = 0;
+            oracle.getData();
+            oracleNextUpdate = block.timestamp.add(oraclePeriod);
         }
     }
 
@@ -213,8 +228,28 @@ contract BurnPool is Ownable, Curve {
         return 0;
     }
 
+    function checkPriceOrUpdate() internal {
+        uint256 lowerPriceThreshold =
+            policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
+
+        uint256 price;
+        if (block.timestamp > oracleNextUpdate) {
+            bool valid;
+
+            (price, valid) = oracle.getData();
+            assert(valid);
+
+            oracleNextUpdate = block.timestamp.add(oraclePeriod);
+        } else {
+            price = oracle.lastPrice();
+        }
+        require(price < lowerPriceThreshold);
+    }
+
     function buyDebt(uint256 debaseSent) external {
         require(lastRebase == Rebase.NEGATIVE);
+        checkPriceOrUpdate();
+
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
         instance.userCouponBalances[msg.sender] = instance.userCouponBalances[

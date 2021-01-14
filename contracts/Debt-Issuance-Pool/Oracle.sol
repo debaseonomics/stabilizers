@@ -4,7 +4,6 @@ pragma solidity >=0.6.6;
 // Some code reproduced from
 // https://github.com/Uniswap/uniswap-v2-core/blob/master/contracts/UniswapV2Pair.sol
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import "@uniswap/lib/contracts/libraries/FixedPoint.sol";
@@ -86,26 +85,22 @@ contract ExampleOracleSimple {
     }
 }
 
-contract Oracle is Ownable, ExampleOracleSimple {
+contract Oracle is ExampleOracleSimple {
     address debase;
-    address public debasePolicy;
+    address pool;
+
     uint256 constant SCALE = 10**18;
     address constant uniFactory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
 
+    uint256 public lastPrice;
+
     constructor(
         address debase_,
-        address Dai_,
-        address debasePolicy_
-    ) public ExampleOracleSimple(uniFactory, debase_, Dai_) {
+        address dai_,
+        address pool_
+    ) public ExampleOracleSimple(uniFactory, debase_, ai_) {
         debase = debase_;
-        debasePolicy = debasePolicy_;
-    }
-
-    /**
-     * @notice Function that must be called 24 hours before the very first rebase of debase protocol to get an accurate price.
-     */
-    function updateBeforeRebase() public onlyOwner {
-        update();
+        pool = pool_;
     }
 
     /**
@@ -113,10 +108,7 @@ contract Oracle is Ownable, ExampleOracleSimple {
      * @return The price and if the price if valid
      */
     function getData() external returns (uint256, bool) {
-        require(
-            msg.sender == debasePolicy,
-            "Only debase policy can get data from oracle"
-        );
+        require(msg.sender == pool);
         update();
         uint256 price = consult(debase, SCALE); // will return 1 BASED in Dai
 
@@ -124,6 +116,7 @@ contract Oracle is Ownable, ExampleOracleSimple {
             return (0, false);
         }
 
+        lastPrice = price;
         return (price, true);
     }
 }
