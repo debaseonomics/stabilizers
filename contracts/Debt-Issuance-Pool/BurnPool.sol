@@ -54,6 +54,21 @@ contract BurnPool is Ownable, Curve {
         uint256 cycleIndex,
         uint256 rewardClaimed_
     );
+    event LogNewCouponCycle(
+        uint256 index,
+        uint256 epochsToReward,
+        uint256 rewardAmount,
+        uint256 epochsRewarded,
+        uint256 couponsIssued,
+        uint256 rewardRate,
+        uint256 periodFinish,
+        uint256 lastUpdateTime,
+        uint256 rewardPerTokenStored,
+        uint256 couponsPerEpoch,
+        uint256 rewardDistributed
+    );
+
+    event LogOraclePriceAndPeriod(uint256 price_, uint256 period_);
 
     IDebasePolicy public policy;
     IERC20 public debase;
@@ -186,12 +201,35 @@ contract BurnPool is Ownable, Curve {
     function startNewCouponCycle() internal {
         if (lastRebase != Rebase.NEGATIVE) {
             lastRebase = Rebase.NEGATIVE;
+
             rewardCycles.push(
                 RewardCycle(epochs, rewardsAccured, 0, 0, 0, 0, 0, 0, 0, 0)
             );
+
+            emit LogNewCouponCycle(
+                rewardCycles.length.sub(1),
+                epochs,
+                rewardsAccured,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+            );
+
             rewardsAccured = 0;
-            oracle.getData();
+
+            uint256 price;
+            bool valid;
+
+            (price, valid) = oracle.getData();
+            require(valid);
+
             oracleNextUpdate = block.timestamp.add(oraclePeriod);
+            emit LogOraclePriceAndPeriod(price, oracleNextUpdate);
         }
     }
 
@@ -275,9 +313,11 @@ contract BurnPool is Ownable, Curve {
             bool valid;
 
             (price, valid) = oracle.getData();
-            assert(valid);
+            require(valid);
 
             oracleNextUpdate = block.timestamp.add(oraclePeriod);
+
+            emit LogOraclePriceAndPeriod(price, oracleNextUpdate);
         } else {
             price = oracle.lastPrice();
         }
