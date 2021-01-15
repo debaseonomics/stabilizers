@@ -98,7 +98,7 @@ contract Oracle is ExampleOracleSimple {
         address debase_,
         address dai_,
         address pool_
-    ) public ExampleOracleSimple(uniFactory, debase_, ai_) {
+    ) public ExampleOracleSimple(uniFactory, debase_, dai_) {
         debase = debase_;
         pool = pool_;
     }
