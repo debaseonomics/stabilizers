@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/Math.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "./lib/SafeMathInt.sol";
 import "./Curve.sol";
 
@@ -25,7 +26,7 @@ interface IOracle {
     function lastPrice() external view returns (uint256);
 }
 
-contract BurnPool is Ownable, Curve {
+contract BurnPool is Ownable, Curve, Initializable {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
     using SafeMathInt for int256;
@@ -164,18 +165,33 @@ contract BurnPool is Ownable, Curve {
         );
     }
 
-    constructor(
+    function initialize(
         address debase_,
         IOracle oracle_,
         IDebasePolicy policy_,
         address burnPool1_,
-        address burnPool2_
-    ) public {
+        address burnPool2_,
+        uint256 epochs_,
+        uint256 oraclePeriod_,
+        uint256 curveShifter_,
+        bytes16 mean_,
+        bytes16 deviation_,
+        bytes16 oneDivDeviationSqrtTwoPi_,
+        bytes16 twoDeviationSquare_
+    ) external initializer onlyOwner {
         debase = IERC20(debase_);
         burnPool1 = burnPool1_;
         burnPool2 = burnPool2_;
         policy = policy_;
         oracle = oracle_;
+
+        epochs = epochs_;
+        oraclePeriod = oraclePeriod_;
+        curveShifter = curveShifter_;
+        mean = mean_;
+        deviation = deviation_;
+        oneDivDeviationSqrtTwoPi = oneDivDeviationSqrtTwoPi_;
+        twoDeviationSquare = twoDeviationSquare_;
 
         lastRebase = Rebase.NONE;
     }
