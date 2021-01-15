@@ -31,9 +31,28 @@ contract BurnPool is Ownable, Curve {
     using SafeMathInt for int256;
 
     event LogStartNewDistributionCycle(
+        uint256 rewardAmount_,
         uint256 poolShareAdded_,
         uint256 rewardRate_,
         uint256 periodFinish_
+    );
+
+    event LogSetOracle(IOracle oracle_);
+    event LogSetOraclePeriod(uint256 oraclePeriod_);
+    event LogSetEpochs(uint256 epochs_);
+    event LogSetCurveShifter(uint256 curveShifter_);
+    event LogSetMeanAndDeviationWithFormulaConstants(
+        bytes16 mean_,
+        bytes16 deviation_,
+        bytes16 oneDivDeviationSqrtTwoPi_,
+        bytes16 twoDeviationSquare_
+    );
+    event LogEmergencyWithdrawa(uint256 withdrawAmount_);
+    event LogRewardsAccured(uint256 rewardsAccured_);
+    event LogRewardClaimed(
+        address user,
+        uint256 cycleIndex,
+        uint256 rewardClaimed_
     );
 
     IDebasePolicy public policy;
@@ -93,18 +112,22 @@ contract BurnPool is Ownable, Curve {
 
     function setOraclePeriod(uint256 oraclePeriod_) external onlyOwner {
         oraclePeriod = oraclePeriod_;
+        emit LogSetOraclePeriod(oraclePeriod);
     }
 
     function setCurveShifter(uint256 curveShifter_) external onlyOwner {
         curveShifter = curveShifter_;
+        emit LogSetCurveShifter(curveShifter);
     }
 
     function setEpochs(uint256 epochs_) external onlyOwner {
         epochs = epochs_;
+        emit LogSetEpochs(epochs);
     }
 
     function setOracle(IOracle oracle_) external onlyOwner {
         oracle = oracle_;
+        emit LogSetOracle(oracle);
     }
 
     function setMeanAndDeviationWithFormulaConstants(
@@ -117,6 +140,13 @@ contract BurnPool is Ownable, Curve {
         deviation = deviation_;
         oneDivDeviationSqrtTwoPi = oneDivDeviationSqrtTwoPi_;
         twoDeviationSquare = twoDeviationSquare_;
+
+        emit LogSetMeanAndDeviationWithFormulaConstants(
+            mean,
+            deviation,
+            oneDivDeviationSqrtTwoPi,
+            twoDeviationSquare
+        );
     }
 
     constructor(
@@ -165,11 +195,10 @@ contract BurnPool is Ownable, Curve {
         }
     }
 
-    function issueRewards(
-        int256 supplyDelta_,
-        uint256 exchangeRate_,
-        uint256 debasePolicyBalance
-    ) internal returns (uint256) {
+    function issueRewards(uint256 exchangeRate_, uint256 debasePolicyBalance)
+        internal
+        returns (uint256)
+    {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
         if (lastRebase != Rebase.POSITIVE) {
@@ -179,24 +208,19 @@ contract BurnPool is Ownable, Curve {
 
         instance.epochsRewarded = instance.epochsRewarded.add(1);
 
-        uint256 debaseToBeRewarded;
+        uint256 targetRate =
+            policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
-        if (supplyDelta_ != 0) {
-            uint256 targetRate =
-                policy.priceTargetRate().add(policy.upperDeviationThreshold());
+        uint256 offset = exchangeRate_.sub(targetRate).add(curveShifter);
 
-            uint256 offset = exchangeRate_.sub(targetRate).add(curveShifter);
-
-            debaseToBeRewarded = getCurvePoint(
+        uint256 debaseToBeRewarded =
+            getCurvePoint(
                 instance.couponsPerEpoch,
                 offset,
                 mean,
                 oneDivDeviationSqrtTwoPi,
                 twoDeviationSquare
             );
-        } else {
-            debaseToBeRewarded = instance.couponsPerEpoch;
-        }
 
         if (debaseToBeRewarded <= debasePolicyBalance) {
             startNewDistributionCycle(debaseToBeRewarded);
@@ -227,6 +251,7 @@ contract BurnPool is Ownable, Curve {
                 uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
 
             rewardsAccured.add(circBalanceChange(supplyDeltaScaled));
+            emit LogRewardsAccured(rewardsAccured);
 
             if (
                 lastRebase != Rebase.NETURAL &&
@@ -234,12 +259,7 @@ contract BurnPool is Ownable, Curve {
                 rewardCycles[length.sub(1)].couponsIssued != 0 &&
                 rewardCycles[length.sub(1)].epochsRewarded < epochs
             ) {
-                return
-                    issueRewards(
-                        supplyDelta_,
-                        exchangeRate_,
-                        debasePolicyBalance
-                    );
+                return issueRewards(exchangeRate_, debasePolicyBalance);
             }
         }
 
@@ -280,8 +300,10 @@ contract BurnPool is Ownable, Curve {
         debase.transfer(address(this), debaseSent);
     }
 
-    function emergencyWithdraw() external {
-        debase.safeTransfer(address(policy), debase.balanceOf(address(this)));
+    function emergencyWithdraw() external onlyOwner {
+        uint256 withdrawAmount = debase.balanceOf(address(this));
+        debase.safeTransfer(address(policy), withdrawAmount);
+        emit LogEmergencyWithdrawa(withdrawAmount);
     }
 
     function lastRewardApplicable(uint256 index)
@@ -292,7 +314,7 @@ contract BurnPool is Ownable, Curve {
         return Math.min(block.timestamp, rewardCycles[index].periodFinish);
     }
 
-    function rewardPerToken(uint256 index) public view returns (uint256) {
+    function rewardPerToken(uint256 index) internal view returns (uint256) {
         RewardCycle memory instance = rewardCycles[index];
 
         if (instance.couponsIssued == 0) {
@@ -313,6 +335,13 @@ contract BurnPool is Ownable, Curve {
         view
         returns (uint256)
     {
+        uint256 length = rewardCycles.length;
+        require(length != 0, "Cycle array is empty");
+        require(
+            index <= length.sub(1),
+            "Index should not me more than items in the cycle array"
+        );
+
         return
             rewardCycles[index].userCouponBalances[account]
                 .mul(
@@ -339,6 +368,7 @@ contract BurnPool is Ownable, Curve {
             instance.rewardDistributed = instance.rewardDistributed.add(reward);
             totalRewardsDistributed = totalRewardsDistributed.add(reward);
 
+            emit LogRewardClaimed(msg.sender, index, rewardToClaim);
             debase.safeTransfer(msg.sender, rewardToClaim);
         }
     }
@@ -357,6 +387,7 @@ contract BurnPool is Ownable, Curve {
         instance.periodFinish = block.timestamp.add(duration);
 
         emit LogStartNewDistributionCycle(
+            amount,
             poolTotalShare,
             instance.rewardRate,
             instance.periodFinish
