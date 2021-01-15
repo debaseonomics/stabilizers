@@ -91,6 +91,22 @@ contract BurnPool is Ownable, Curve {
         _;
     }
 
+    function setOraclePeriod(uint256 oraclePeriod_) external onlyOwner {
+        oraclePeriod = oraclePeriod_;
+    }
+
+    function setCurveShifter(uint256 curveShifter_) external onlyOwner {
+        curveShifter = curveShifter_;
+    }
+
+    function setEpochs(uint256 epochs_) external onlyOwner {
+        epochs = epochs_;
+    }
+
+    function setOracle(IOracle oracle_) external onlyOwner {
+        oracle = oracle_;
+    }
+
     function setMeanAndDeviationWithFormulaConstants(
         bytes16 mean_,
         bytes16 deviation_,
