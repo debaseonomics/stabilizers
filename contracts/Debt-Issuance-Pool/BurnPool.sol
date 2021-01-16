@@ -92,19 +92,21 @@ contract BurnPool is Ownable, Curve, Initializable {
     uint256 public rewardsAccured;
     uint256 public curveShifter;
 
+    uint256 internal constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
+
     enum Rebase {POSITIVE, NETURAL, NEGATIVE, NONE}
     Rebase public lastRebase;
 
     struct RewardCycle {
         uint256 epochsToReward;
-        uint256 rewardAmount;
+        uint256 rewardShare;
         uint256 epochsRewarded;
         uint256 couponsIssued;
         uint256 rewardRate;
         uint256 periodFinish;
         uint256 lastUpdateTime;
         uint256 rewardPerTokenStored;
-        uint256 couponsPerEpoch;
+        uint256 debasePerEpoch;
         uint256 rewardDistributed;
         mapping(address => uint256) userCouponBalances;
         mapping(address => uint256) userRewardPerTokenPaid;
@@ -124,6 +126,18 @@ contract BurnPool is Ownable, Curve, Initializable {
                 .rewardPerTokenStored;
         }
         _;
+    }
+
+    function mulDiv(
+        uint256 x,
+        uint256 y,
+        uint256 z
+    ) internal pure returns (uint256) {
+        uint256 a = x.div(z);
+        uint256 b = x.mod(z); // x = a * z + b
+        uint256 c = y.div(z);
+        uint256 d = y.mod(z); // y = c * z + d
+        return a.mul(b).mul(z).add(a).mul(d).add(b).mul(c).add(b.mul(d)).div(z);
     }
 
     function setOraclePeriod(uint256 oraclePeriod_) external onlyOwner {
@@ -196,36 +210,34 @@ contract BurnPool is Ownable, Curve, Initializable {
         lastRebase = Rebase.NONE;
     }
 
-    function circBalanceChange(uint256 supplyDeltaScaled)
-        internal
-        view
-        returns (uint256)
-    {
+    function circBalance() internal view returns (uint256) {
         uint256 totalSupply = debase.totalSupply();
 
-        uint256 circulatingSupply =
-            totalSupply.sub(debase.balanceOf(burnPool1)).sub(
-                debase.balanceOf(burnPool2)
-            );
-
-        uint256 circulatingShare =
-            circulatingSupply.mul(10**18).div(totalSupply);
-
-        return supplyDeltaScaled.mul(circulatingShare).div(10**18);
+        return
+            totalSupply
+                .sub(debase.balanceOf(address(policy)))
+                .sub(debase.balanceOf(burnPool1))
+                .sub(debase.balanceOf(burnPool2));
     }
 
     function startNewCouponCycle() internal {
         if (lastRebase != Rebase.NEGATIVE) {
             lastRebase = Rebase.NEGATIVE;
 
+            uint256 rewardAmount =
+                mulDiv(circBalance(), rewardsAccured, 10**18);
+
+            uint256 rewardShare =
+                mulDiv(rewardAmount, 10**18, debase.totalSupply());
+
             rewardCycles.push(
-                RewardCycle(epochs, rewardsAccured, 0, 0, 0, 0, 0, 0, 0, 0)
+                RewardCycle(epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0)
             );
 
             emit LogNewCouponCycle(
                 rewardCycles.length.sub(1),
                 epochs,
-                rewardsAccured,
+                rewardShare,
                 0,
                 0,
                 0,
@@ -257,7 +269,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         if (lastRebase != Rebase.POSITIVE) {
             lastRebase = Rebase.POSITIVE;
-            instance.couponsPerEpoch = instance.couponsIssued.div(epochs);
+            instance.debasePerEpoch = instance.rewardShare.div(epochs);
         }
 
         instance.epochsRewarded = instance.epochsRewarded.add(1);
@@ -265,11 +277,11 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 targetRate =
             policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
-        uint256 offset = exchangeRate_.sub(targetRate).add(curveShifter);
+        uint256 offset = exchangeRate_.add(curveShifter).sub(targetRate);
 
         uint256 debaseToBeRewarded =
             getCurvePoint(
-                instance.couponsPerEpoch,
+                instance.debasePerEpoch,
                 offset,
                 mean,
                 oneDivDeviationSqrtTwoPi,
@@ -301,10 +313,22 @@ contract BurnPool is Ownable, Curve, Initializable {
         } else {
             uint256 length = rewardCycles.length;
 
-            uint256 supplyDeltaScaled =
-                uint256(supplyDelta_.abs()).mul(uint256(rebaseLag_.abs()));
+            uint256 currentSupply = debase.totalSupply();
+            uint256 newSupply = uint256(supplyDelta_.abs()).add(currentSupply);
 
-            rewardsAccured.add(circBalanceChange(supplyDeltaScaled));
+            if (newSupply > MAX_SUPPLY) {
+                newSupply = MAX_SUPPLY;
+            }
+
+            uint256 expansionPercentage =
+                mulDiv(newSupply, 10**18, currentSupply);
+
+            rewardsAccured = mulDiv(
+                rewardsAccured,
+                expansionPercentage,
+                10**18
+            );
+
             emit LogRewardsAccured(rewardsAccured);
 
             if (
@@ -419,7 +443,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             instance.rewards[msg.sender] = 0;
 
             uint256 rewardToClaim =
-                debase.totalSupply().mul(reward).div(10**18);
+                mulDiv(debase.totalSupply(), reward, 10**18);
 
             instance.rewardDistributed = instance.rewardDistributed.add(reward);
             totalRewardsDistributed = totalRewardsDistributed.add(reward);
@@ -435,7 +459,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
-        uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
+        uint256 poolTotalShare = mulDiv(amount, 10**18, debase.totalSupply());
         uint256 duration = policy.minRebaseTimeIntervalSec();
 
         instance.rewardRate = poolTotalShare.div(duration);
