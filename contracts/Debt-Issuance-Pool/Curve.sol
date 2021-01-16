@@ -40,4 +40,25 @@ contract Curve {
                 )
             );
     }
+
+    function uint256ToBytes16(uint256 number_, uint256 scale_)
+        external
+        pure
+        returns (bytes16)
+    {
+        bytes16 number = ABDKMathQuad.fromUInt(number_);
+        bytes16 scale = ABDKMathQuad.fromUInt(scale_);
+
+        return ABDKMathQuad.div(number, scale);
+    }
+
+    function bytes16ToUnit256(bytes16 number_, uint256 scale_)
+        external
+        pure
+        returns (uint256)
+    {
+        bytes16 scale = ABDKMathQuad.fromUInt(scale_);
+
+        return ABDKMathQuad.toUInt(ABDKMathQuad.mul(number_, scale));
+    }
 }
