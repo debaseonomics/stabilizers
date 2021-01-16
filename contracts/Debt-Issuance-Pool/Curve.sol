@@ -7,14 +7,16 @@ contract Curve {
     bytes16 private MINUS_ONE = 0xbfff0000000000000000000000000000;
     bytes16 private TENE18 = 0x403abc16d674ec800000000000000000;
 
-    function getCurvePoint(
-        uint256 value_,
+    function getCurveValues(
+        uint256 percentageValue_,
+        uint256 debaseValue_,
         uint256 priceDelta_,
         bytes16 mean_,
         bytes16 oneDivDeviationSqrtTwoPi_,
         bytes16 twoDeviationSquare_
-    ) public view returns (uint256) {
-        bytes16 value = ABDKMathQuad.fromUInt(value_);
+    ) public view returns (uint256, uint256) {
+        bytes16 percentageValue = ABDKMathQuad.fromUInt(percentageValue_);
+        bytes16 debaseValue = ABDKMathQuad.fromUInt(debaseValue_);
         bytes16 priceDelta =
             ABDKMathQuad.div(ABDKMathQuad.fromUInt(priceDelta_), TENE18);
 
@@ -29,16 +31,13 @@ contract Curve {
                 )
             );
 
-        return
-            ABDKMathQuad.toUInt(
-                ABDKMathQuad.mul(
-                    ABDKMathQuad.mul(
-                        oneDivDeviationSqrtTwoPi_,
-                        ABDKMathQuad.exp(res2)
-                    ),
-                    value
-                )
-            );
+        bytes16 res3 =
+            ABDKMathQuad.mul(oneDivDeviationSqrtTwoPi_, ABDKMathQuad.exp(res2));
+
+        return (
+            ABDKMathQuad.toUInt(ABDKMathQuad.mul(res3, percentageValue)),
+            ABDKMathQuad.toUInt(ABDKMathQuad.mul(res3, debaseValue))
+        );
     }
 
     function uint256ToBytes16(uint256 number_, uint256 scale_)

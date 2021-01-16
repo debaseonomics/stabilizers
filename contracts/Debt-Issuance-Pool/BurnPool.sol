@@ -261,10 +261,11 @@ contract BurnPool is Ownable, Curve, Initializable {
         }
     }
 
-    function issueRewards(uint256 exchangeRate_, uint256 debasePolicyBalance)
-        internal
-        returns (uint256)
-    {
+    function issueRewards(
+        int256 supplyDelta_,
+        uint256 exchangeRate_,
+        uint256 debasePolicyBalance
+    ) internal returns (uint256) {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
         if (lastRebase != Rebase.POSITIVE) {
@@ -274,19 +275,39 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         instance.epochsRewarded = instance.epochsRewarded.add(1);
 
+        uint256 currentSupply = debase.totalSupply();
+        uint256 newSupply = uint256(supplyDelta_.abs()).add(currentSupply);
+
+        if (newSupply > MAX_SUPPLY) {
+            newSupply = MAX_SUPPLY;
+        }
+
+        uint256 expansionPercentage = mulDiv(newSupply, 10**18, currentSupply);
+
         uint256 targetRate =
             policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
         uint256 offset = exchangeRate_.add(curveShifter).sub(targetRate);
 
-        uint256 debaseToBeRewarded =
-            getCurvePoint(
-                instance.debasePerEpoch,
-                offset,
-                mean,
-                oneDivDeviationSqrtTwoPi,
-                twoDeviationSquare
-            );
+        uint256 expansionPercentageScaled;
+        uint256 debaseToBeRewarded;
+
+        (expansionPercentageScaled, debaseToBeRewarded) = getCurveValues(
+            instance.debasePerEpoch,
+            expansionPercentage,
+            offset,
+            mean,
+            oneDivDeviationSqrtTwoPi,
+            twoDeviationSquare
+        );
+
+        rewardsAccured = mulDiv(
+            rewardsAccured,
+            expansionPercentageScaled,
+            10**18
+        );
+
+        emit LogRewardsAccured(rewardsAccured);
 
         if (debaseToBeRewarded <= debasePolicyBalance) {
             startNewDistributionCycle(debaseToBeRewarded);
@@ -306,39 +327,20 @@ contract BurnPool is Ownable, Curve, Initializable {
             "Only debase policy contract can call this"
         );
 
+        uint256 length = rewardCycles.length;
+
         if (supplyDelta_ <= 0) {
             startNewCouponCycle();
         } else if (supplyDelta_ == 0) {
             lastRebase = Rebase.NETURAL;
-        } else {
-            uint256 length = rewardCycles.length;
-
-            uint256 currentSupply = debase.totalSupply();
-            uint256 newSupply = uint256(supplyDelta_.abs()).add(currentSupply);
-
-            if (newSupply > MAX_SUPPLY) {
-                newSupply = MAX_SUPPLY;
-            }
-
-            uint256 expansionPercentage =
-                mulDiv(newSupply, 10**18, currentSupply);
-
-            rewardsAccured = mulDiv(
-                rewardsAccured,
-                expansionPercentage,
-                10**18
-            );
-
-            emit LogRewardsAccured(rewardsAccured);
-
-            if (
-                lastRebase != Rebase.NETURAL &&
-                length != 0 &&
-                rewardCycles[length.sub(1)].couponsIssued != 0 &&
-                rewardCycles[length.sub(1)].epochsRewarded < epochs
-            ) {
-                return issueRewards(exchangeRate_, debasePolicyBalance);
-            }
+        } else if (
+            lastRebase != Rebase.NETURAL &&
+            length != 0 &&
+            rewardCycles[length.sub(1)].couponsIssued != 0 &&
+            rewardCycles[length.sub(1)].epochsRewarded < epochs
+        ) {
+            return
+                issueRewards(supplyDelta_, exchangeRate_, debasePolicyBalance);
         }
 
         return 0;
