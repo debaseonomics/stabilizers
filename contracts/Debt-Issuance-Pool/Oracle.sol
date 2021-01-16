@@ -86,8 +86,9 @@ contract ExampleOracleSimple {
 }
 
 contract Oracle is ExampleOracleSimple {
-    address debase;
-    address pool;
+    address public debase;
+    address public dai;
+    address public pool;
 
     uint256 constant SCALE = 10**18;
     address constant uniFactory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
@@ -100,6 +101,7 @@ contract Oracle is ExampleOracleSimple {
         address pool_
     ) public ExampleOracleSimple(uniFactory, debase_, dai_) {
         debase = debase_;
+        dai = dai_;
         pool = pool_;
     }
 

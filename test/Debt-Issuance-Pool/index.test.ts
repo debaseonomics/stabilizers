@@ -40,7 +40,7 @@ describe('Debt Issuance Pool', () => {
 		let address: string;
 
 		const debase = '0x9248c485b0B80f76DA451f167A8db30F33C70907';
-		const dai = '0x6b175474e89094c44da98b954eedeac495271d0f';
+		const dai = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
 		const policy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
 		const burnPool1 = '0xF4168cc431e9a8310e595dB9F7E2564cC96F5D51';
 		const burnPool2 = '0xf5cB771023706Ca566eA6128b88e03A262737479';
@@ -58,6 +58,8 @@ describe('Debt Issuance Pool', () => {
 			burnPool = await burnPoolFactory.deploy();
 			oracle = await oracleFactory.deploy(debase, dai, burnPool.address);
 
+			let user = await ethers.provider.getSigner('0x6B175474E89094C44Da98b954EedeAC495271d0F');
+
 			await burnPool.initialize(
 				debase,
 				oracle.address,
@@ -74,27 +76,54 @@ describe('Debt Issuance Pool', () => {
 			);
 		});
 
-		describe('Initial settings check', function() {
-			it('Reward token should be debase', async function() {
+		describe('Burn pool initialized settings check', function() {
+			it('Debase address should be correct', async function() {
 				expect(await burnPool.debase()).eq(debase);
 			});
-			it('Policy should be policy contract', async function() {
+			it('Policy address should be correct', async function() {
 				expect(await burnPool.policy()).eq(policy);
 			});
-			it('Duration should be correct', async function() {
+			it('Oracle address should be correct', async function() {
 				expect(await burnPool.oracle()).eq(oracle.address);
 			});
-			it('Reward token should be debase', async function() {
+			it('Burn pool 1 address should be correct', async function() {
 				expect(await burnPool.burnPool1()).eq(burnPool1);
 			});
-			it('Pair token should be degov lp', async function() {
+			it('Burn pool 2 address should be correct', async function() {
 				expect(await burnPool.burnPool2()).eq(burnPool2);
 			});
-			it('Policy should be policy contract', async function() {
+			it('Epochs should be correct', async function() {
 				expect(await burnPool.epochs()).eq(epochs);
 			});
-			it('Duration should be correct', async function() {
+			it('Oracle period should be set correctly', async function() {
 				expect(await burnPool.oraclePeriod()).eq(oraclePeriod);
+			});
+			it('Curve shifter should be set correctly', async function() {
+				expect(await burnPool.curveShifter()).eq(curveShifter);
+			});
+			it('Mean should be set correctly', async function() {
+				expect(await burnPool.mean()).eq(mean);
+			});
+			it('Deviation should be set correctly', async function() {
+				expect(await burnPool.deviation()).eq(deviation);
+			});
+			it('One dic deviation sqrt two pi should be set correctly', async function() {
+				expect(await burnPool.oneDivDeviationSqrtTwoPi()).eq(oneDivDeviationSqrtTwoPi);
+			});
+			it('Two deviation square should be set correctly', async function() {
+				expect(await burnPool.twoDeviationSquare()).eq(twoDeviationSquare);
+			});
+		});
+
+		describe('Oracle initialized settings check', function() {
+			it('Debase address should be correct', async function() {
+				expect(await oracle.debase()).eq(debase);
+			});
+			it('Dai address should be correct', async function() {
+				expect(await oracle.dai()).eq(dai);
+			});
+			it('Pool address should be correct', async function() {
+				expect(await oracle.pool()).eq(burnPool.address);
 			});
 		});
 	});

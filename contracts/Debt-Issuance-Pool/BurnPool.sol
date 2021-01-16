@@ -78,10 +78,10 @@ contract BurnPool is Ownable, Curve, Initializable {
     address public burnPool1;
     address public burnPool2;
 
-    bytes16 mean;
-    bytes16 deviation;
-    bytes16 oneDivDeviationSqrtTwoPi;
-    bytes16 twoDeviationSquare;
+    bytes16 public mean;
+    bytes16 public deviation;
+    bytes16 public oneDivDeviationSqrtTwoPi;
+    bytes16 public twoDeviationSquare;
 
     uint256 public epochs;
     uint256 public totalRewardsDistributed;
