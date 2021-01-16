@@ -8,13 +8,13 @@ contract Curve {
     bytes16 private TENE18 = 0x403abc16d674ec800000000000000000;
 
     function getCurvePoint(
-        uint256 debasePerEpoch_,
+        uint256 value_,
         uint256 priceDelta_,
         bytes16 mean_,
         bytes16 oneDivDeviationSqrtTwoPi_,
         bytes16 twoDeviationSquare_
     ) public view returns (uint256) {
-        bytes16 debasePerEpoch = ABDKMathQuad.fromUInt(debasePerEpoch_);
+        bytes16 value = ABDKMathQuad.fromUInt(value_);
         bytes16 priceDelta =
             ABDKMathQuad.div(ABDKMathQuad.fromUInt(priceDelta_), TENE18);
 
@@ -36,7 +36,7 @@ contract Curve {
                         oneDivDeviationSqrtTwoPi_,
                         ABDKMathQuad.exp(res2)
                     ),
-                    debasePerEpoch
+                    value
                 )
             );
     }
