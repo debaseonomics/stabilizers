@@ -7,6 +7,7 @@ yarn-error.log*
 lerna-debug.log*
 
 cache
+artifacts
 typechain
 buidler.config.ts
 hardhat.config.ts
