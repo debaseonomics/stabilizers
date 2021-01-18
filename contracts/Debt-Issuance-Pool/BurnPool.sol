@@ -142,15 +142,10 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 c = y.div(z);
         uint256 d = y.mod(z); // y = c * z + d
 
-        uint256 res1 = b.mul(d);
-        uint256 res2 = a.mul(b);
-        res2 = res2.mul(z);
-        res2 = res2.add(a);
-        res2 = res2.mul(d);
-        res2 = res2.add(b);
-        res2 = res2.mul(c);
-        res2 = res2.mul(res1);
-        return res2 = res2.div(z);
+        uint256 res1 = a.mul(b).mul(z).add(a).mul(d);
+        uint256 res2 = b.mul(c).add(b.mul(d)).div(z);
+
+        return res1.add(res2);
     }
 
     function setOraclePeriod(uint256 oraclePeriod_) external onlyOwner {

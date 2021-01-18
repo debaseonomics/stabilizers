@@ -210,6 +210,22 @@ contract RandomizedCounter is
         _;
     }
 
+    function mulDiv(
+        uint256 x,
+        uint256 y,
+        uint256 z
+    ) internal pure returns (uint256) {
+        uint256 a = x.div(z);
+        uint256 b = x.mod(z); // x = a * z + b
+        uint256 c = y.div(z);
+        uint256 d = y.mod(z); // y = c * z + d
+
+        uint256 res1 = a.mul(b).mul(z).add(a).mul(d);
+        uint256 res2 = b.mul(c).add(b.mul(d)).div(z);
+
+        return res1.add(res2);
+    }
+
     /**
      * @notice Function to set how much reward the stabilizer will request
      */
@@ -399,7 +415,7 @@ contract RandomizedCounter is
 
         if (newBufferFunds) {
             uint256 previousUnusedRewardToClaim =
-                debase.totalSupply().mul(lastRewardPercentage).div(10**18);
+                mulDiv(debase.totalSupply(), lastRewardPercentage, 10**18);
 
             if (
                 debase.balanceOf(address(this)) >= previousUnusedRewardToClaim
@@ -420,8 +436,10 @@ contract RandomizedCounter is
                 (beforePeriodFinish || block.number >= periodFinish)
             ) {
                 uint256 rewardToClaim =
-                    debasePolicyBalance.mul(rewardPercentage).div(10**18);
-                lastRewardPercentage = rewardToClaim.mul(10**18).div(
+                    mulDiv(debasePolicyBalance, rewardPercentage, 10**18);
+                lastRewardPercentage = mulDiv(
+                    rewardToClaim,
+                    10**18,
                     debase.totalSupply()
                 );
 
@@ -446,9 +464,12 @@ contract RandomizedCounter is
                         rewardRate.mul(revokeRewardDuration);
 
                     uint256 rewardToRevokeAmount =
-                        debase.totalSupply().mul(rewardToRevokeShare).div(
+                        mulDiv(
+                            debase.totalSupply(),
+                            rewardToRevokeShare,
                             10**18
                         );
+
                     lastUpdateBlock = block.number;
 
                     debase.safeTransfer(policy, rewardToRevokeAmount);
@@ -478,7 +499,7 @@ contract RandomizedCounter is
             count = 0;
         } else {
             uint256 rewardToClaim =
-                debase.totalSupply().mul(lastRewardPercentage).div(10**18);
+                mulDiv(debase.totalSupply(), lastRewardPercentage, 10**18);
 
             debase.safeTransfer(policy, rewardToClaim);
             emit LogClaimRevoked(rewardToClaim);
@@ -574,7 +595,7 @@ contract RandomizedCounter is
             rewards[msg.sender] = 0;
 
             uint256 rewardToClaim =
-                debase.totalSupply().mul(reward).div(10**18);
+                mulDiv(debase.totalSupply(), reward, 10**18);
 
             debase.safeTransfer(msg.sender, rewardToClaim);
 
