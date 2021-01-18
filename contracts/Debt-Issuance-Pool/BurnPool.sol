@@ -39,6 +39,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     );
 
     event LogSetOracle(IOracle oracle_);
+    event LogSetMultiSigReward(uint256 multiSigReward_);
     event LogSetOraclePeriod(uint256 oraclePeriod_);
     event LogSetEpochs(uint256 epochs_);
     event LogSetCurveShifter(uint256 curveShifter_);
@@ -91,6 +92,9 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     uint256 public rewardsAccured;
     uint256 public curveShifter;
+
+    uint256 public initialReward;
+    uint256 public multiSigReward;
 
     uint256 internal constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
 
@@ -160,6 +164,11 @@ contract BurnPool is Ownable, Curve, Initializable {
         emit LogSetOracle(oracle);
     }
 
+    function setMultiSigReward(uint256 multiSigReward_) external onlyOwner {
+        multiSigReward = multiSigReward_;
+        emit LogSetOracle(oracle);
+    }
+
     function setMeanAndDeviationWithFormulaConstants(
         bytes16 mean_,
         bytes16 deviation_,
@@ -188,6 +197,8 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 epochs_,
         uint256 oraclePeriod_,
         uint256 curveShifter_,
+        uint256 initialReward_,
+        uint256 multiSigReward_,
         bytes16 mean_,
         bytes16 deviation_,
         bytes16 oneDivDeviationSqrtTwoPi_,
@@ -206,6 +217,8 @@ contract BurnPool is Ownable, Curve, Initializable {
         deviation = deviation_;
         oneDivDeviationSqrtTwoPi = oneDivDeviationSqrtTwoPi_;
         twoDeviationSquare = twoDeviationSquare_;
+        initialReward = initialReward_;
+        multiSigReward = multiSigReward_;
 
         lastRebase = Rebase.NONE;
     }
@@ -438,8 +451,6 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     function getReward(uint256 index) public updateReward(msg.sender, index) {
-        require(lastRebase == Rebase.POSITIVE || lastRebase == Rebase.NEGATIVE);
-
         uint256 reward = earned(msg.sender, index);
 
         if (reward > 0) {
