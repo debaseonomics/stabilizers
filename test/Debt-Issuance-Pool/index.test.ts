@@ -1,4 +1,4 @@
-import { ethers } from 'hardhat';
+import { ethers, hardhatArguments, network } from 'hardhat';
 import { BigNumber, Signer } from 'ethers';
 import { expect } from 'chai';
 
@@ -6,20 +6,25 @@ import { formatEther, parseEther, parseUnits } from 'ethers/lib/utils';
 
 import BurnPoolArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/BurnPool.sol/BurnPool.json';
 import OracleArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/Oracle.sol/Oracle.json';
+import DebasePolicyArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/Mock/DebasePolicy.sol/DebasePolicy.json';
 
 import { BurnPoolFactory } from '../../typechain/BurnPoolFactory';
 import { OracleFactory } from '../../typechain/OracleFactory';
 
 import { BurnPool } from '../../typechain/BurnPool';
 import { Oracle } from '../../typechain/Oracle';
+import { DebasePolicy } from '../../typechain/DebasePolicy';
 
 describe('Debt Issuance Pool', () => {
 	let accounts: Signer[];
 	let burnPoolFactory: BurnPoolFactory;
 	let oracleFactory: OracleFactory;
+	let debasePolicy: DebasePolicy;
+	let account1: string;
 
 	before(async function() {
 		accounts = await ethers.getSigners();
+		account1 = await accounts[0].getAddress();
 
 		burnPoolFactory = (new ethers.ContractFactory(
 			BurnPoolArtifact.abi,
@@ -32,6 +37,18 @@ describe('Debt Issuance Pool', () => {
 			OracleArtifact.bytecode,
 			accounts[0]
 		) as any) as OracleFactory;
+
+		await network.provider.request({
+			method: 'hardhat_impersonateAccount',
+			params: [ '0xf038c1cfadace2c0e5963ab5c0794b9575e1d2c2' ]
+		});
+
+		let multiSig = await ethers.provider.getSigner('0xf038c1cfadace2c0e5963ab5c0794b9575e1d2c2');
+		debasePolicy = new ethers.Contract(
+			'0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD',
+			DebasePolicyArtifact.abi,
+			multiSig
+		) as DebasePolicy;
 	});
 
 	describe('Deploy and Initialize', () => {
@@ -48,6 +65,8 @@ describe('Debt Issuance Pool', () => {
 		const epochs = 0;
 		const oraclePeriod = 10;
 		const curveShifter = 0;
+		const initialReward = 0;
+		const multiSigReward = 0;
 		const mean = '0x00000000000000000000000000000000';
 		const deviation = '0x3fff0000000000000000000000000000';
 		const oneDivDeviationSqrtTwoPi = '0x40353af632a67dd1dd8e38e38e38e38e';
@@ -58,8 +77,6 @@ describe('Debt Issuance Pool', () => {
 			burnPool = await burnPoolFactory.deploy();
 			oracle = await oracleFactory.deploy(debase, dai, burnPool.address);
 
-			let user = await ethers.provider.getSigner('0x6B175474E89094C44Da98b954EedeAC495271d0F');
-
 			await burnPool.initialize(
 				debase,
 				oracle.address,
@@ -69,6 +86,8 @@ describe('Debt Issuance Pool', () => {
 				epochs,
 				oraclePeriod,
 				curveShifter,
+				initialReward,
+				multiSigReward,
 				mean,
 				deviation,
 				oneDivDeviationSqrtTwoPi,

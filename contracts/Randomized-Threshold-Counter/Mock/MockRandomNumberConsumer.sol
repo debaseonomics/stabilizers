@@ -33,7 +33,6 @@ contract MockRandomNumberConsumer {
             msg.sender == address(randomizedCounter),
             "Only counter can call this function"
         );
-        console.log("Called");
         link.transfer(address(1),fee);
     }
 
