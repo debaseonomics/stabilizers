@@ -93,7 +93,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     uint256 public rewardsAccured;
     uint256 public curveShifter;
 
-    uint256 public initialReward;
+    uint256 public initialRewardShare;
     uint256 public multiSigReward;
 
     uint256 internal constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
@@ -178,6 +178,13 @@ contract BurnPool is Ownable, Curve, Initializable {
         emit LogSetOracle(oracle);
     }
 
+    function setInitialRewardShare(uint256 initialRewardShare_)
+        external
+        onlyOwner
+    {
+        initialRewardShare = initialRewardShare_;
+    }
+
     function setMeanAndDeviationWithFormulaConstants(
         bytes16 mean_,
         bytes16 deviation_,
@@ -206,7 +213,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 epochs_,
         uint256 oraclePeriod_,
         uint256 curveShifter_,
-        uint256 initialReward_,
+        uint256 initialRewardShare_,
         uint256 multiSigReward_,
         bytes16 mean_,
         bytes16 deviation_,
@@ -226,7 +233,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         deviation = deviation_;
         oneDivDeviationSqrtTwoPi = oneDivDeviationSqrtTwoPi_;
         twoDeviationSquare = twoDeviationSquare_;
-        initialReward = initialReward_;
+        initialRewardShare = initialRewardShare_;
         multiSigReward = multiSigReward_;
 
         lastRebase = Rebase.NONE;
@@ -246,8 +253,17 @@ contract BurnPool is Ownable, Curve, Initializable {
         if (lastRebase != Rebase.NEGATIVE) {
             lastRebase = Rebase.NEGATIVE;
 
-            uint256 rewardAmount =
-                mulDiv(circBalance(), rewardsAccured, 10**18);
+            uint256 rewardAmount;
+
+            if (rewardsAccured == 0 && rewardCycles.length == 0) {
+                rewardAmount = mulDiv(
+                    circBalance(),
+                    initialRewardShare,
+                    10**18
+                );
+            } else {
+                rewardAmount = mulDiv(circBalance(), rewardsAccured, 10**18);
+            }
 
             uint256 rewardShare =
                 mulDiv(rewardAmount, 10**18, debase.totalSupply());

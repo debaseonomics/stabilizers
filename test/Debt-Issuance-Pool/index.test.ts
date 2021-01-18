@@ -49,6 +49,9 @@ describe('Debt Issuance Pool', () => {
 			DebasePolicyArtifact.abi,
 			multiSig
 		) as DebasePolicy;
+
+		await debasePolicy.setStabilizerPoolEnabled(1, false);
+		await debasePolicy.setStabilizerPoolEnabled(2, false);
 	});
 
 	describe('Deploy and Initialize', () => {
@@ -93,9 +96,25 @@ describe('Debt Issuance Pool', () => {
 				oneDivDeviationSqrtTwoPi,
 				twoDeviationSquare
 			);
+
+			await debasePolicy.addNewStabilizerPool(burnPool.address);
+			await debasePolicy.setStabilizerPoolEnabled(3, true);
+			console.log(await debasePolicy.stabilizerPools(3));
 		});
 
-		describe('Burn pool initialized settings check', function() {
+		describe('Oracle initialized settings check', function() {
+			it('Debase address should be correct', async function() {
+				expect(await oracle.debase()).eq(debase);
+			});
+			it('Dai address should be correct', async function() {
+				expect(await oracle.dai()).eq(dai);
+			});
+			it('Pool address should be correct', async function() {
+				expect(await oracle.pool()).eq(burnPool.address);
+			});
+		});
+
+		describe('Burn pool initialization', function() {
 			it('Debase address should be correct', async function() {
 				expect(await burnPool.debase()).eq(debase);
 			});
@@ -120,6 +139,12 @@ describe('Debt Issuance Pool', () => {
 			it('Curve shifter should be set correctly', async function() {
 				expect(await burnPool.curveShifter()).eq(curveShifter);
 			});
+			it('Oracle period should be set correctly', async function() {
+				expect(await burnPool.initialReward()).eq(initialReward);
+			});
+			it('Curve shifter should be set correctly', async function() {
+				expect(await burnPool.multiSigReward()).eq(multiSigReward);
+			});
 			it('Mean should be set correctly', async function() {
 				expect(await burnPool.mean()).eq(mean);
 			});
@@ -132,18 +157,7 @@ describe('Debt Issuance Pool', () => {
 			it('Two deviation square should be set correctly', async function() {
 				expect(await burnPool.twoDeviationSquare()).eq(twoDeviationSquare);
 			});
-		});
 
-		describe('Oracle initialized settings check', function() {
-			it('Debase address should be correct', async function() {
-				expect(await oracle.debase()).eq(debase);
-			});
-			it('Dai address should be correct', async function() {
-				expect(await oracle.dai()).eq(dai);
-			});
-			it('Pool address should be correct', async function() {
-				expect(await oracle.pool()).eq(burnPool.address);
-			});
 		});
 	});
 });
