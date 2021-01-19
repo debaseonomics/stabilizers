@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "./lib/SafeMathInt.sol";
+import "hardhat/console.sol";
 import "./Curve.sol";
 
 interface IDebasePolicy {
@@ -136,22 +137,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         _;
     }
 
-    function mulDiv(
-        uint256 x,
-        uint256 y,
-        uint256 z
-    ) internal pure returns (uint256) {
-        uint256 a = x.div(z);
-        uint256 b = x.mod(z); // x = a * z + b
-        uint256 c = y.div(z);
-        uint256 d = y.mod(z); // y = c * z + d
-
-        uint256 res1 = a.mul(b).mul(z).add(a).mul(d);
-        uint256 res2 = b.mul(c).add(b.mul(d)).div(z);
-
-        return res1.add(res2);
-    }
-
     function setOraclePeriod(uint256 oraclePeriod_) external onlyOwner {
         oraclePeriod = oraclePeriod_;
         emit LogSetOraclePeriod(oraclePeriod);
@@ -249,7 +234,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         lastRebase = Rebase.NONE;
     }
 
-    function circBalance() internal view returns (uint256) {
+    function circBalance() public view returns (uint256) {
         uint256 totalSupply = debase.totalSupply();
 
         return
@@ -266,17 +251,15 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 rewardAmount;
 
             if (rewardsAccrued == 0 && rewardCycles.length == 0) {
-                rewardAmount = mulDiv(
-                    circBalance(),
-                    initialRewardShare,
+                rewardAmount = circBalance().mul(initialRewardShare).div(
                     10**18
                 );
             } else {
-                rewardAmount = mulDiv(circBalance(), rewardsAccrued, 10**18);
+                rewardAmount = circBalance().mul(rewardsAccrued).div(10**18);
             }
 
             uint256 rewardShare =
-                mulDiv(rewardAmount, 10**18, debase.totalSupply());
+                rewardAmount.mul(10**18).div(debase.totalSupply());
 
             rewardCycles.push(
                 RewardCycle(epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -304,7 +287,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             (price, valid) = oracle.getData();
             require(valid);
 
-            oracleNextUpdate = block.timestamp.add(oraclePeriod);
+            oracleNextUpdate = block.number.add(oraclePeriod);
             emit LogOraclePriceAndPeriod(price, oracleNextUpdate);
         }
     }
@@ -326,13 +309,11 @@ contract BurnPool is Ownable, Curve, Initializable {
             bytes16ToUnit256(curveValue, instance.debasePerEpoch);
 
         uint256 multiSigRewardToClaimAmount =
-            mulDiv(debaseToBeRewarded, multiSigRewardShare, 10**18);
+            debaseToBeRewarded.mul(multiSigRewardShare).div(10**18);
 
-        multiSigRewardToClaimShare = mulDiv(
-            multiSigRewardToClaimAmount,
-            10**18,
-            debase.totalSupply()
-        );
+        multiSigRewardToClaimShare = multiSigRewardToClaimAmount
+            .mul(10**18)
+            .div(debase.totalSupply());
 
         if (debaseToBeRewarded <= debasePolicyBalance) {
             startNewDistributionCycle(debaseToBeRewarded);
@@ -345,7 +326,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         require(msg.sender == multiSigAddress);
 
         uint256 amountToClaim =
-            mulDiv(debase.totalSupply(), multiSigRewardToClaimShare, 10**18);
+            debase.totalSupply().mul(multiSigRewardToClaimShare).div(10**18);
         debase.transfer(multiSigAddress, amountToClaim);
         multiSigRewardToClaimShare = 0;
     }
@@ -376,7 +357,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             }
 
             uint256 expansionPercentage =
-                mulDiv(newSupply, 10**18, currentSupply);
+                newSupply.mul(10**18).div(currentSupply);
 
             uint256 targetRate =
                 policy.priceTargetRate().add(policy.upperDeviationThreshold());
@@ -394,9 +375,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 expansionPercentageScaled =
                 bytes16ToUnit256(value, expansionPercentage);
 
-            rewardsAccrued = mulDiv(
-                rewardsAccrued,
-                expansionPercentageScaled,
+            rewardsAccrued = rewardsAccrued.mul(expansionPercentageScaled).div(
                 10**18
             );
 
@@ -420,25 +399,26 @@ contract BurnPool is Ownable, Curve, Initializable {
             policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
 
         uint256 price;
-        if (block.timestamp > oracleNextUpdate) {
+        if (block.number > oracleNextUpdate) {
             bool valid;
 
             (price, valid) = oracle.getData();
             require(valid);
+            console.log(price);
 
-            oracleNextUpdate = block.timestamp.add(oraclePeriod);
+            oracleNextUpdate = block.number.add(oraclePeriod);
 
             emit LogOraclePriceAndPeriod(price, oracleNextUpdate);
         } else {
             price = oracle.lastPrice();
         }
-        require(price < lowerPriceThreshold);
+        require(price < lowerPriceThreshold,"Can only buy coupons if price is lower than lower threshold");
     }
 
-    function buyDebt(uint256 debaseSent) external {
+    function buyCoupons(uint256 debaseSent) external {
         require(
             lastRebase == Rebase.NEGATIVE,
-            "Can only buy debt with last rebase was negative"
+            "Can only buy coupons with last rebase was negative"
         );
         checkPriceOrUpdate();
 
@@ -451,7 +431,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         instance.couponsIssued = instance.couponsIssued.add(debaseSent);
 
-        debase.transfer(address(this), debaseSent);
+        debase.safeTransferFrom(msg.sender, address(this), debaseSent);
     }
 
     function emergencyWithdraw() external onlyOwner {
@@ -515,7 +495,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             instance.rewards[msg.sender] = 0;
 
             uint256 rewardToClaim =
-                mulDiv(debase.totalSupply(), reward, 10**18);
+                debase.totalSupply().mul(reward).div(10**18);
 
             instance.rewardDistributed = instance.rewardDistributed.add(reward);
             totalRewardsDistributed = totalRewardsDistributed.add(reward);
@@ -531,7 +511,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     {
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
 
-        uint256 poolTotalShare = mulDiv(amount, 10**18, debase.totalSupply());
+        uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
         uint256 duration = policy.minRebaseTimeIntervalSec();
 
         instance.rewardRate = poolTotalShare.div(duration);

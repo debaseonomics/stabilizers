@@ -28,7 +28,9 @@ describe('Debt Issuance Pool', () => {
 	let debasePolicy: DebasePolicy;
 	let uniswapV2Router: UniswapV2Router02;
 	let dai: Erc20;
+	let daiUser: Erc20;
 	let debase: Debase;
+	let debaseUser: Debase;
 	let account1: string;
 
 	before(async function() {
@@ -84,8 +86,10 @@ describe('Debt Issuance Pool', () => {
 			accounts[0]
 		) as Debase;
 
+		debaseUser = debase.connect(accounts[0]);
+
 		dai = new ethers.Contract('0x6B175474E89094C44Da98b954EedeAC495271d0F', ERC20Artifact.abi, daiSig) as Erc20;
-		const daiUser = dai.connect(accounts[0]);
+		daiUser = dai.connect(accounts[0]);
 
 		await dai.transfer(account1, parseEther('90000'));
 		daiUser.approve(uniswapV2Router.address, parseEther('100'));
@@ -103,8 +107,8 @@ describe('Debt Issuance Pool', () => {
 
 	describe('Deploy and Initialize', () => {
 		let burnPool: BurnPool;
+		let burnPoolUser: BurnPool;
 		let oracle: Oracle;
-		let address: string;
 
 		const debaseAddress = '0x9248c485b0B80f76DA451f167A8db30F33C70907';
 		const daiAddress = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
@@ -113,10 +117,10 @@ describe('Debt Issuance Pool', () => {
 		const burnPool2 = '0xf5cB771023706Ca566eA6128b88e03A262737479';
 		const multiSigAddress = '0xf038c1cfadace2c0e5963ab5c0794b9575e1d2c2';
 
-		const epochs = 0;
-		const oraclePeriod = 10;
+		const epochs = 1;
+		const oraclePeriod = 3;
 		const curveShifter = 0;
-		const initialRewardShare = 0;
+		const initialRewardShare = parseUnits('5', 17);
 		const multiSigReward = 0;
 		const mean = '0x00000000000000000000000000000000';
 		const deviation = '0x3fff0000000000000000000000000000';
@@ -124,8 +128,8 @@ describe('Debt Issuance Pool', () => {
 		const twoDeviationSquare = '0x40000000000000000000000000000000';
 
 		before(async function() {
-			address = await accounts[0].getAddress();
 			burnPool = await burnPoolFactory.deploy();
+			burnPoolUser = burnPool.connect(accounts[0]);
 			oracle = await oracleFactory.deploy(debaseAddress, daiAddress, burnPool.address);
 
 			await burnPool.initialize(
@@ -209,17 +213,17 @@ describe('Debt Issuance Pool', () => {
 
 			describe('Basic Functionality', () => {
 				describe('When first rebase has not fired', () => {
-					it('Users should not be able to buy debt', async function() {
+					it('Users should be not able to buy coupons', async function() {
 						await debase.approve(burnPool.address, parseEther('10'));
-						await expect(burnPool.buyDebt(parseEther('10'))).to.be.revertedWith(
-							'Can only buy debt with last rebase was negative'
+						await expect(burnPoolUser.buyCoupons(parseEther('10'))).to.be.revertedWith(
+							'Can only buy coupons with last rebase was negative'
 						);
 					});
 				});
 
 				describe('When first rebase has been fired', () => {
 					describe('For neutral supply delta rebase', () => {
-						it('Stabilizer function should emit an accrue event', async function() {
+						it('Stabilizer function should not emit an accrue event', async function() {
 							await expect(burnPool.checkStabilizerAndGetReward(0, 10, 0, parseEther('10'))).to.not.emit(
 								burnPool,
 								'LogRewardsAccrued'
@@ -232,11 +236,80 @@ describe('Debt Issuance Pool', () => {
 						it('Reward enum should be set to neutral', async function() {
 							expect(await burnPool.lastRebase()).eq(1);
 						});
+
+						it('Users should not be able to buy coupons', async function() {
+							await debase.approve(burnPool.address, parseEther('10'));
+							await expect(burnPoolUser.buyCoupons(parseEther('10'))).to.be.revertedWith(
+								'Can only buy coupons with last rebase was negative'
+							);
+						});
 					});
 
-					describe('For positive supply delta', () => {});
+					describe('For negative supply delta rebase', () => {
+						it('Stabilizer function should emit new coupon cycle event', async function() {
+							const rewardAmount = (await burnPool.circBalance())
+								.mul(await burnPool.initialRewardShare())
+								.div(parseEther('1'));
 
-					describe('For negative supply delta', () => {});
+							const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
+
+							await expect(burnPool.checkStabilizerAndGetReward(-1, 10, 0, parseEther('10'))).to
+								.emit(burnPool, 'LogNewCouponCycle')
+								.withArgs(0, 1, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
+						});
+
+						it('User should be able to buy coupons and emit correct transfer event', async function() {
+							await debaseUser.approve(burnPool.address, parseEther('10'));
+							await expect(burnPoolUser.buyCoupons(parseEther('1'))).to
+								.emit(debase, 'Transfer')
+								.withArgs(account1, burnPool.address, parseEther('1'));
+						});
+						it('User should emit update oracle event', async function() {
+							await debaseUser.approve(burnPool.address, parseEther('10'));
+							await expect(burnPoolUser.buyCoupons(parseEther('1'))).to.emit(
+								burnPoolUser,
+								'LogOraclePriceAndPeriod'
+							);
+						});
+
+						it('User should not be able to buy debt when price goes higher than lower price limit', async function() {
+							daiUser.approve(uniswapV2Router.address, parseEther('45000'));
+
+							await uniswapV2Router.swapExactTokensForTokens(
+								parseEther('45000'),
+								parseEther('1'),
+								[
+									'0x6B175474E89094C44Da98b954EedeAC495271d0F',
+									'0x9248c485b0B80f76DA451f167A8db30F33C70907'
+								],
+								account1,
+								1621000900
+							);
+							await debaseUser.approve(burnPool.address, parseEther('10'));
+							await expect(burnPoolUser.buyCoupons(parseEther('1'))).to.be.revertedWith(
+								'Can only buy coupons if price is lower than lower threshold'
+							);
+						});
+
+						it('User should be able buy debt when price goes back down the limit', async function() {
+							debaseUser.approve(uniswapV2Router.address, parseEther('45000'));
+
+							await uniswapV2Router.swapExactTokensForTokens(
+								parseEther('45000'),
+								parseEther('1'),
+								[
+									'0x9248c485b0B80f76DA451f167A8db30F33C70907',
+									'0x6B175474E89094C44Da98b954EedeAC495271d0F'
+								],
+								account1,
+								1621000900
+							);
+							await debaseUser.approve(burnPool.address, parseEther('10'));
+							await expect(burnPoolUser.buyCoupons(parseEther('1'))).to.not.be.revertedWith(
+								'Can only buy coupons if price is lower than lower threshold'
+							);
+						});
+					});
 				});
 			});
 		});
