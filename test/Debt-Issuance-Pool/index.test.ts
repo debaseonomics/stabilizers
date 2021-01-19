@@ -85,13 +85,12 @@ describe('Debt Issuance Pool', () => {
 		daiUser.approve(uniswapV2Router.address, parseEther('100'));
 
 		await uniswapV2Router.swapExactTokensForTokens(
-			parseEther('10'),
+			parseEther('100'),
 			parseEther('1'),
 			[ '0x6B175474E89094C44Da98b954EedeAC495271d0F', '0x9248c485b0B80f76DA451f167A8db30F33C70907' ],
 			account1,
 			1621000900
 		);
-		console.log(formatEther(await debase.balanceOf(account1)));
 		await debasePolicy.setStabilizerPoolEnabled(1, false);
 		await debasePolicy.setStabilizerPoolEnabled(2, false);
 	});
@@ -101,7 +100,7 @@ describe('Debt Issuance Pool', () => {
 		let oracle: Oracle;
 		let address: string;
 
-		const debase = '0x9248c485b0B80f76DA451f167A8db30F33C70907';
+		const debaseAddress = '0x9248c485b0B80f76DA451f167A8db30F33C70907';
 		const daiAddress = '0x6B175474E89094C44Da98b954EedeAC495271d0F';
 		const policy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
 		const burnPool1 = '0xF4168cc431e9a8310e595dB9F7E2564cC96F5D51';
@@ -121,10 +120,10 @@ describe('Debt Issuance Pool', () => {
 		before(async function() {
 			address = await accounts[0].getAddress();
 			burnPool = await burnPoolFactory.deploy();
-			oracle = await oracleFactory.deploy(debase, daiAddress, burnPool.address);
+			oracle = await oracleFactory.deploy(debaseAddress, daiAddress, burnPool.address);
 
 			await burnPool.initialize(
-				debase,
+				debaseAddress,
 				oracle.address,
 				policy,
 				burnPool1,
@@ -160,7 +159,7 @@ describe('Debt Issuance Pool', () => {
 
 		describe('Burn pool initialization', function() {
 			it('Debase address should be correct', async function() {
-				expect(await burnPool.debase()).eq(debase);
+				expect(await burnPool.debase()).eq(debaseAddress);
 			});
 			it('Policy address should be correct', async function() {
 				expect(await burnPool.policy()).eq(policy);
@@ -205,11 +204,12 @@ describe('Debt Issuance Pool', () => {
 			describe('Basic Functionality', () => {
 				describe('When first rebase has not fired', () => {
 					it('Users should not be able to buy debt', async function() {
+						await debase.approve(burnPool.address, parseEther('10'));
 						await expect(burnPool.buyDebt(parseEther('10'))).to.be.reverted;
 					});
 				});
 
-				describe('When', () => {});
+				describe('When first rebase has been fired', () => {});
 			});
 		});
 	});

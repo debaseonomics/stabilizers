@@ -39,7 +39,9 @@ contract BurnPool is Ownable, Curve, Initializable {
     );
 
     event LogSetOracle(IOracle oracle_);
-    event LogSetMultiSigReward(uint256 multiSigReward_);
+    event LogSetMultiSigRewardShare(uint256 multiSigRewardShare_);
+    event LogSetInitialRewardShare(uint256 initialRewardShare_);
+    event LogSetMultiSigAddress(address multiSigAddress_);
     event LogSetOraclePeriod(uint256 oraclePeriod_);
     event LogSetEpochs(uint256 epochs_);
     event LogSetCurveShifter(uint256 curveShifter_);
@@ -75,6 +77,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     IDebasePolicy public policy;
     IERC20 public debase;
     IOracle public oracle;
+    address public multiSigAddress;
 
     address public burnPool1;
     address public burnPool2;
@@ -94,7 +97,8 @@ contract BurnPool is Ownable, Curve, Initializable {
     uint256 public curveShifter;
 
     uint256 public initialRewardShare;
-    uint256 public multiSigReward;
+    uint256 public multiSigRewardShare;
+    uint256 public multiSigRewardToClaimShare;
 
     uint256 internal constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
 
@@ -168,16 +172,25 @@ contract BurnPool is Ownable, Curve, Initializable {
         emit LogSetOracle(oracle);
     }
 
-    function setMultiSigReward(uint256 multiSigReward_) external onlyOwner {
-        multiSigReward = multiSigReward_;
-        emit LogSetOracle(oracle);
-    }
-
     function setInitialRewardShare(uint256 initialRewardShare_)
         external
         onlyOwner
     {
         initialRewardShare = initialRewardShare_;
+        emit LogSetInitialRewardShare(initialRewardShare);
+    }
+
+    function setMultiSigRewardShare(uint256 multiSigRewardShare_)
+        external
+        onlyOwner
+    {
+        multiSigRewardShare = multiSigRewardShare_;
+        emit LogSetMultiSigRewardShare(multiSigRewardShare);
+    }
+
+    function setMultiSigAddress(address multiSigAddress_) external onlyOwner {
+        multiSigAddress = multiSigAddress_;
+        emit LogSetMultiSigAddress(multiSigAddress);
     }
 
     function setMeanAndDeviationWithFormulaConstants(
@@ -209,7 +222,8 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 oraclePeriod_,
         uint256 curveShifter_,
         uint256 initialRewardShare_,
-        uint256 multiSigReward_,
+        address multiSigAddress_,
+        uint256 multiSigRewardShare_,
         bytes16 mean_,
         bytes16 deviation_,
         bytes16 oneDivDeviationSqrtTwoPi_,
@@ -229,7 +243,8 @@ contract BurnPool is Ownable, Curve, Initializable {
         oneDivDeviationSqrtTwoPi = oneDivDeviationSqrtTwoPi_;
         twoDeviationSquare = twoDeviationSquare_;
         initialRewardShare = initialRewardShare_;
-        multiSigReward = multiSigReward_;
+        multiSigRewardShare = multiSigRewardShare_;
+        multiSigAddress = multiSigAddress_;
 
         lastRebase = Rebase.NONE;
     }
@@ -310,11 +325,29 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 debaseToBeRewarded =
             bytes16ToUnit256(curveValue, instance.debasePerEpoch);
 
+        uint256 multiSigRewardToClaimAmount =
+            mulDiv(debaseToBeRewarded, multiSigRewardShare, 10**18);
+
+        multiSigRewardToClaimShare = mulDiv(
+            multiSigRewardToClaimAmount,
+            10**18,
+            debase.totalSupply()
+        );
+
         if (debaseToBeRewarded <= debasePolicyBalance) {
             startNewDistributionCycle(debaseToBeRewarded);
-            return debaseToBeRewarded;
+            return debaseToBeRewarded.add(multiSigRewardToClaimAmount);
         }
         return 0;
+    }
+
+    function claimMultiSigReward() external {
+        require(msg.sender == multiSigAddress);
+
+        uint256 amountToClaim =
+            mulDiv(debase.totalSupply(), multiSigRewardToClaimShare, 10**18);
+        debase.transfer(multiSigAddress, amountToClaim);
+        multiSigRewardToClaimShare = 0;
     }
 
     function checkStabilizerAndGetReward(
