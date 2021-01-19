@@ -52,7 +52,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         bytes16 twoDeviationSquare_
     );
     event LogEmergencyWithdrawa(uint256 withdrawAmount_);
-    event LogRewardsAccured(uint256 rewardsAccured_);
+    event LogRewardsAccrued(uint256 rewardsAccrued_);
     event LogRewardClaimed(
         address user,
         uint256 cycleIndex,
@@ -93,7 +93,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     uint256 public oraclePeriod;
     uint256 public oracleNextUpdate;
 
-    uint256 public rewardsAccured;
+    uint256 public rewardsAccrued;
     uint256 public curveShifter;
 
     uint256 public initialRewardShare;
@@ -102,7 +102,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     uint256 internal constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
 
-    enum Rebase {POSITIVE, NETURAL, NEGATIVE, NONE}
+    enum Rebase {POSITIVE, NEUTRAL, NEGATIVE, NONE}
     Rebase public lastRebase;
 
     struct RewardCycle {
@@ -265,14 +265,14 @@ contract BurnPool is Ownable, Curve, Initializable {
 
             uint256 rewardAmount;
 
-            if (rewardsAccured == 0 && rewardCycles.length == 0) {
+            if (rewardsAccrued == 0 && rewardCycles.length == 0) {
                 rewardAmount = mulDiv(
                     circBalance(),
                     initialRewardShare,
                     10**18
                 );
             } else {
-                rewardAmount = mulDiv(circBalance(), rewardsAccured, 10**18);
+                rewardAmount = mulDiv(circBalance(), rewardsAccrued, 10**18);
             }
 
             uint256 rewardShare =
@@ -296,7 +296,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 0
             );
 
-            rewardsAccured = 0;
+            rewardsAccrued = 0;
 
             uint256 price;
             bool valid;
@@ -361,10 +361,10 @@ contract BurnPool is Ownable, Curve, Initializable {
             "Only debase policy contract can call this"
         );
 
-        if (supplyDelta_ <= 0) {
+        if (supplyDelta_ < 0) {
             startNewCouponCycle();
         } else if (supplyDelta_ == 0) {
-            lastRebase = Rebase.NETURAL;
+            lastRebase = Rebase.NEUTRAL;
         } else {
             uint256 length = rewardCycles.length;
 
@@ -394,16 +394,16 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 expansionPercentageScaled =
                 bytes16ToUnit256(value, expansionPercentage);
 
-            rewardsAccured = mulDiv(
-                rewardsAccured,
+            rewardsAccrued = mulDiv(
+                rewardsAccrued,
                 expansionPercentageScaled,
                 10**18
             );
 
-            emit LogRewardsAccured(rewardsAccured);
+            emit LogRewardsAccrued(rewardsAccrued);
 
             if (
-                lastRebase != Rebase.NETURAL &&
+                lastRebase != Rebase.NEUTRAL &&
                 length != 0 &&
                 rewardCycles[length.sub(1)].couponsIssued != 0 &&
                 rewardCycles[length.sub(1)].epochsRewarded < epochs
@@ -436,7 +436,10 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     function buyDebt(uint256 debaseSent) external {
-        require(lastRebase == Rebase.NEGATIVE);
+        require(
+            lastRebase == Rebase.NEGATIVE,
+            "Can only buy debt with last rebase was negative"
+        );
         checkPriceOrUpdate();
 
         RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];

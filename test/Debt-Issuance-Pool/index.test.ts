@@ -35,12 +35,6 @@ describe('Debt Issuance Pool', () => {
 		accounts = await ethers.getSigners();
 		account1 = await accounts[0].getAddress();
 
-		burnPoolFactory = (new ethers.ContractFactory(
-			BurnPoolArtifact.abi,
-			BurnPoolArtifact.bytecode,
-			accounts[0]
-		) as any) as BurnPoolFactory;
-
 		oracleFactory = (new ethers.ContractFactory(
 			OracleArtifact.abi,
 			OracleArtifact.bytecode,
@@ -57,8 +51,20 @@ describe('Debt Issuance Pool', () => {
 			params: [ '0x6B175474E89094C44Da98b954EedeAC495271d0F' ]
 		});
 
+		await network.provider.request({
+			method: 'hardhat_impersonateAccount',
+			params: [ '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD' ]
+		});
+
 		let multiSig = await ethers.provider.getSigner('0xf038c1cfadace2c0e5963ab5c0794b9575e1d2c2');
 		let daiSig = await ethers.provider.getSigner('0x6B175474E89094C44Da98b954EedeAC495271d0F');
+		let policySig = await ethers.provider.getSigner('0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD');
+
+		burnPoolFactory = (new ethers.ContractFactory(
+			BurnPoolArtifact.abi,
+			BurnPoolArtifact.bytecode,
+			policySig
+		) as any) as BurnPoolFactory;
 
 		debasePolicy = new ethers.Contract(
 			'0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD',
@@ -132,6 +138,7 @@ describe('Debt Issuance Pool', () => {
 				oraclePeriod,
 				curveShifter,
 				initialRewardShare,
+				multiSigAddress,
 				multiSigReward,
 				mean,
 				deviation,
@@ -142,12 +149,11 @@ describe('Debt Issuance Pool', () => {
 			await burnPool.transferOwnership(multiSigAddress);
 			await debasePolicy.addNewStabilizerPool(burnPool.address);
 			await debasePolicy.setStabilizerPoolEnabled(3, true);
-			console.log(await debasePolicy.stabilizerPools(3));
 		});
 
 		describe('Oracle initialized settings check', function() {
 			it('Debase address should be correct', async function() {
-				expect(await oracle.debase()).eq(debase);
+				expect(await oracle.debase()).eq(debaseAddress);
 			});
 			it('Dai address should be correct', async function() {
 				expect(await oracle.dai()).eq(daiAddress);
@@ -186,7 +192,7 @@ describe('Debt Issuance Pool', () => {
 				expect(await burnPool.initialRewardShare()).eq(initialRewardShare);
 			});
 			it('Curve shifter should be set correctly', async function() {
-				expect(await burnPool.multiSigReward()).eq(multiSigReward);
+				expect(await burnPool.multiSigRewardShare()).eq(multiSigReward);
 			});
 			it('Mean should be set correctly', async function() {
 				expect(await burnPool.mean()).eq(mean);
@@ -205,11 +211,33 @@ describe('Debt Issuance Pool', () => {
 				describe('When first rebase has not fired', () => {
 					it('Users should not be able to buy debt', async function() {
 						await debase.approve(burnPool.address, parseEther('10'));
-						await expect(burnPool.buyDebt(parseEther('10'))).to.be.reverted;
+						await expect(burnPool.buyDebt(parseEther('10'))).to.be.revertedWith(
+							'Can only buy debt with last rebase was negative'
+						);
 					});
 				});
 
-				describe('When first rebase has been fired', () => {});
+				describe('When first rebase has been fired', () => {
+					describe('For neutral supply delta rebase', () => {
+						it('Stabilizer function should emit an accrue event', async function() {
+							await expect(burnPool.checkStabilizerAndGetReward(0, 10, 0, parseEther('10'))).to.not.emit(
+								burnPool,
+								'LogRewardsAccrued'
+							);
+						});
+						it('Reward accrue amount should be zero', async function() {
+							expect(await burnPool.rewardsAccrued()).eq(0);
+						});
+
+						it('Reward enum should be set to neutral', async function() {
+							expect(await burnPool.lastRebase()).eq(1);
+						});
+					});
+
+					describe('For positive supply delta', () => {});
+
+					describe('For negative supply delta', () => {});
+				});
 			});
 		});
 	});
