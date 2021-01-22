@@ -6,6 +6,7 @@ import "./lib/ABDKMathQuad.sol";
 contract Curve {
     bytes16 private MINUS_ONE = 0xbfff0000000000000000000000000000;
     bytes16 private TENE18 = 0x403abc16d674ec800000000000000000;
+    bytes16 private ONE = 0x3fff0000000000000000000000000000;
 
     function getCurveValue(
         uint256 priceDelta_,
@@ -28,7 +29,13 @@ contract Curve {
             );
 
         return
-            ABDKMathQuad.mul(oneDivDeviationSqrtTwoPi_, ABDKMathQuad.exp(res2));
+            ABDKMathQuad.mul(
+                ABDKMathQuad.mul(
+                    ABDKMathQuad.div(ONE, priceDelta),
+                    oneDivDeviationSqrtTwoPi_
+                ),
+                ABDKMathQuad.exp(res2)
+            );
     }
 
     function uint256ToBytes16(uint256 number_, uint256 scale_)
