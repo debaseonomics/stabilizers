@@ -2,7 +2,7 @@ import { ethers, hardhatArguments, network } from 'hardhat';
 import { BigNumber, Signer } from 'ethers';
 import { expect } from 'chai';
 
-import { formatEther, parseEther, parseUnits } from 'ethers/lib/utils';
+import { formatEther, id, parseEther, parseUnits } from 'ethers/lib/utils';
 
 import BurnPoolArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/BurnPool.sol/BurnPool.json';
 import OracleArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/Oracle.sol/Oracle.json';
@@ -20,6 +20,7 @@ import { Erc20 } from '../../typechain/Erc20';
 import { DebasePolicy } from '../../typechain/DebasePolicy';
 import { UniswapV2Router02 } from '../../typechain/UniswapV2Router02';
 import { Debase } from '../../typechain/Debase';
+import { off } from 'process';
 
 describe('Debt Issuance Pool', () => {
 	let accounts: Signer[];
@@ -123,9 +124,10 @@ describe('Debt Issuance Pool', () => {
 		const initialRewardShare = parseUnits('5', 17);
 		const multiSigReward = 0;
 		const mean = '0x00000000000000000000000000000000';
-		const deviation = '0x3fff0000000000000000000000000000';
-		const oneDivDeviationSqrtTwoPi = '0x40353af632a67dd1dd8e38e38e38e38e';
-		const twoDeviationSquare = '0x40000000000000000000000000000000';
+		const deviation = '0x3fff609aa6ab2c4acd8e2f11c9afa275';
+		const oneDivDeviationSqrtTwoPi = '0x3ffd28981c19c08dc42a6e8e83ae45e6';
+
+		const twoDeviationSquare = '0x4000e5a9a7c429bb0f601a46fe1645e7';
 
 		before(async function() {
 			burnPool = await burnPoolFactory.deploy();
@@ -308,6 +310,111 @@ describe('Debt Issuance Pool', () => {
 							await expect(burnPoolUser.buyCoupons(parseEther('1'))).to.not.be.revertedWith(
 								'Can only buy coupons if price is lower than lower threshold'
 							);
+						});
+					});
+					describe('For positive supply delta rebase', () => {
+						let burnPoolV2: BurnPool;
+						let burnPoolUserV2: BurnPool;
+						let oracleV2: Oracle;
+
+						before(async function() {
+							burnPoolV2 = await burnPoolFactory.deploy();
+							burnPoolUserV2 = burnPoolV2.connect(accounts[0]);
+							oracleV2 = await oracleFactory.deploy(debaseAddress, daiAddress, burnPool.address);
+
+							await burnPoolV2.initialize(
+								debaseAddress,
+								oracleV2.address,
+								policy,
+								burnPool1,
+								burnPool2,
+								epochs,
+								oraclePeriod,
+								curveShifter,
+								initialRewardShare,
+								multiSigAddress,
+								multiSigReward,
+								mean,
+								deviation,
+								oneDivDeviationSqrtTwoPi,
+								twoDeviationSquare
+							);
+						});
+
+						it('Stabilizer function should emit an accrue event with correct reward amount', async function() {
+							const offset = parseUnits('95', 15);
+							const value = await burnPoolV2.getCurveValue(
+								offset,
+								mean,
+								oneDivDeviationSqrtTwoPi,
+								twoDeviationSquare
+							);
+
+							const currentSupply = await debase.totalSupply();
+							const newSupply = currentSupply.add(parseEther('30000'));
+
+							const expansionPercentage = newSupply
+								.mul(parseEther('1'))
+								.div(currentSupply)
+								.sub(parseEther('1'));
+
+							const expansionPercentageScaled = await burnPoolV2.bytes16ToUnit256(
+								value,
+								expansionPercentage
+							);
+
+							const rewardsAccrued = expansionPercentageScaled.div(parseEther('1'));
+
+							await expect(
+								burnPoolV2.checkStabilizerAndGetReward(
+									parseEther('30000'),
+									10,
+									parseEther('2'),
+									parseEther('10000')
+								)
+							).to
+								.emit(burnPoolV2, 'LogRewardsAccrued')
+								.withArgs(rewardsAccrued);
+						});
+						it('There should be no reward cycles started', async function() {
+							expect(await burnPoolV2.rewardCyclesLength()).eq(0);
+						});
+						it('Another Stabilizer function should emit an accrue event with correct reward amount', async function() {
+							const offset = parseUnits('95', 15);
+							const value = await burnPoolV2.getCurveValue(
+								offset,
+								mean,
+								oneDivDeviationSqrtTwoPi,
+								twoDeviationSquare
+							);
+
+							const currentSupply = await debase.totalSupply();
+							const newSupply = currentSupply.add(parseEther('30000'));
+
+							const expansionPercentage = newSupply
+								.mul(parseEther('1'))
+								.div(currentSupply)
+								.sub(parseEther('1'));
+
+							const expansionPercentageScaled = await burnPoolV2.bytes16ToUnit256(
+								value,
+								expansionPercentage
+							);
+
+							const rewardsAccrued = (await burnPoolV2.rewardsAccrued())
+								.mul(expansionPercentageScaled)
+								.div(parseEther('1'));
+
+							await expect(
+								burnPoolV2.checkStabilizerAndGetReward(
+									parseEther('30000'),
+									10,
+									parseEther('2'),
+									parseEther('10000')
+								)
+							).to
+								.emit(burnPoolV2, 'LogRewardsAccrued')
+								.withArgs(rewardsAccrued);
 						});
 					});
 				});

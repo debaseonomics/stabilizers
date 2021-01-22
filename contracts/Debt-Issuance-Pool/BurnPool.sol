@@ -123,6 +123,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     RewardCycle[] public rewardCycles;
+    uint256 public rewardCyclesLength;
 
     modifier updateReward(address account, uint256 index) {
         RewardCycle storage instance = rewardCycles[index];
@@ -250,7 +251,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
             uint256 rewardAmount;
 
-            if (rewardsAccrued == 0 && rewardCycles.length == 0) {
+            if (rewardsAccrued == 0 && rewardCyclesLength == 0) {
                 rewardAmount = circBalance().mul(initialRewardShare).div(
                     10**18
                 );
@@ -265,8 +266,10 @@ contract BurnPool is Ownable, Curve, Initializable {
                 RewardCycle(epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0)
             );
 
+            rewardCyclesLength = rewardCyclesLength.add(1);
+
             emit LogNewCouponCycle(
-                rewardCycles.length.sub(1),
+                rewardCyclesLength.sub(1),
                 epochs,
                 rewardShare,
                 0,
@@ -296,7 +299,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         internal
         returns (uint256)
     {
-        RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
+        RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
         if (lastRebase != Rebase.POSITIVE) {
             lastRebase = Rebase.POSITIVE;
@@ -347,8 +350,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         } else if (supplyDelta_ == 0) {
             lastRebase = Rebase.NEUTRAL;
         } else {
-            uint256 length = rewardCycles.length;
-
             uint256 currentSupply = debase.totalSupply();
             uint256 newSupply = uint256(supplyDelta_.abs()).add(currentSupply);
 
@@ -357,7 +358,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             }
 
             uint256 expansionPercentage =
-                newSupply.mul(10**18).div(currentSupply);
+                newSupply.mul(10**18).div(currentSupply).sub(10**18);
 
             uint256 targetRate =
                 policy.priceTargetRate().add(policy.upperDeviationThreshold());
@@ -383,9 +384,9 @@ contract BurnPool is Ownable, Curve, Initializable {
 
             if (
                 lastRebase != Rebase.NEUTRAL &&
-                length != 0 &&
-                rewardCycles[length.sub(1)].couponsIssued != 0 &&
-                rewardCycles[length.sub(1)].epochsRewarded < epochs
+                rewardCyclesLength != 0 &&
+                rewardCycles[rewardCyclesLength.sub(1)].couponsIssued != 0 &&
+                rewardCycles[rewardCyclesLength.sub(1)].epochsRewarded < epochs
             ) {
                 return issueRewards(debasePolicyBalance, value);
             }
@@ -404,7 +405,6 @@ contract BurnPool is Ownable, Curve, Initializable {
 
             (price, valid) = oracle.getData();
             require(valid);
-            console.log(price);
 
             oracleNextUpdate = block.number.add(oraclePeriod);
 
@@ -412,7 +412,10 @@ contract BurnPool is Ownable, Curve, Initializable {
         } else {
             price = oracle.lastPrice();
         }
-        require(price < lowerPriceThreshold,"Can only buy coupons if price is lower than lower threshold");
+        require(
+            price < lowerPriceThreshold,
+            "Can only buy coupons if price is lower than lower threshold"
+        );
     }
 
     function buyCoupons(uint256 debaseSent) external {
@@ -422,7 +425,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         );
         checkPriceOrUpdate();
 
-        RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
+        RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
         instance.userCouponBalances[msg.sender] = instance.userCouponBalances[
             msg.sender
@@ -469,10 +472,9 @@ contract BurnPool is Ownable, Curve, Initializable {
         view
         returns (uint256)
     {
-        uint256 length = rewardCycles.length;
-        require(length != 0, "Cycle array is empty");
+        require(rewardCyclesLength != 0, "Cycle array is empty");
         require(
-            index <= length.sub(1),
+            index <= rewardCyclesLength.sub(1),
             "Index should not me more than items in the cycle array"
         );
 
@@ -507,9 +509,9 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     function startNewDistributionCycle(uint256 amount)
         internal
-        updateReward(address(0), rewardCycles.length.sub(1))
+        updateReward(address(0), rewardCyclesLength.sub(1))
     {
-        RewardCycle storage instance = rewardCycles[rewardCycles.length.sub(1)];
+        RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
         uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
         uint256 duration = policy.minRebaseTimeIntervalSec();
