@@ -110,7 +110,7 @@ contract Oracle is ExampleOracleSimple {
      * @return The price and if the price if valid
      */
     function getData() external returns (uint256, bool) {
-        require(msg.sender == pool);
+        require(msg.sender == pool, "Only pool can call the oracle");
         update();
         uint256 price = consult(debase, SCALE); // will return 1 BASED in Dai
 

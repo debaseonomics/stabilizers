@@ -288,7 +288,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             bool valid;
 
             (price, valid) = oracle.getData();
-            require(valid);
+            require(valid, "Price is invalid");
 
             oracleNextUpdate = block.number.add(oraclePeriod);
             emit LogOraclePriceAndPeriod(price, oracleNextUpdate);
@@ -376,9 +376,13 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 expansionPercentageScaled =
                 bytes16ToUnit256(value, expansionPercentage);
 
-            rewardsAccrued = rewardsAccrued.mul(expansionPercentageScaled).div(
-                10**18
-            );
+            if (rewardsAccrued == 0) {
+                rewardsAccrued = expansionPercentageScaled;
+            } else {
+                rewardsAccrued = rewardsAccrued
+                    .mul(expansionPercentageScaled)
+                    .div(10**18);
+            }
 
             emit LogRewardsAccrued(rewardsAccrued);
 
@@ -404,7 +408,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             bool valid;
 
             (price, valid) = oracle.getData();
-            require(valid);
+            require(valid, "Price is invalid");
 
             oracleNextUpdate = block.number.add(oraclePeriod);
 

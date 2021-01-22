@@ -320,7 +320,7 @@ describe('Debt Issuance Pool', () => {
 						before(async function() {
 							burnPoolV2 = await burnPoolFactory.deploy();
 							burnPoolUserV2 = burnPoolV2.connect(accounts[0]);
-							oracleV2 = await oracleFactory.deploy(debaseAddress, daiAddress, burnPool.address);
+							oracleV2 = await oracleFactory.deploy(debaseAddress, daiAddress, burnPoolV2.address);
 
 							await burnPoolV2.initialize(
 								debaseAddress,
@@ -342,7 +342,7 @@ describe('Debt Issuance Pool', () => {
 						});
 
 						it('Stabilizer function should emit an accrue event with correct reward amount', async function() {
-							const offset = parseUnits('95', 15);
+							const offset = parseUnits('95', 16);
 							const value = await burnPoolV2.getCurveValue(
 								offset,
 								mean,
@@ -363,8 +363,6 @@ describe('Debt Issuance Pool', () => {
 								expansionPercentage
 							);
 
-							const rewardsAccrued = expansionPercentageScaled.div(parseEther('1'));
-
 							await expect(
 								burnPoolV2.checkStabilizerAndGetReward(
 									parseEther('30000'),
@@ -374,13 +372,13 @@ describe('Debt Issuance Pool', () => {
 								)
 							).to
 								.emit(burnPoolV2, 'LogRewardsAccrued')
-								.withArgs(rewardsAccrued);
+								.withArgs(expansionPercentageScaled);
 						});
 						it('There should be no reward cycles started', async function() {
 							expect(await burnPoolV2.rewardCyclesLength()).eq(0);
 						});
 						it('Another Stabilizer function should emit an accrue event with correct reward amount', async function() {
-							const offset = parseUnits('95', 15);
+							const offset = parseUnits('95', 16);
 							const value = await burnPoolV2.getCurveValue(
 								offset,
 								mean,
@@ -415,6 +413,22 @@ describe('Debt Issuance Pool', () => {
 							).to
 								.emit(burnPoolV2, 'LogRewardsAccrued')
 								.withArgs(rewardsAccrued);
+						});
+						it('When negative rebase happens new coupon cycle should be started with the correct data', async function() {
+							const cycleLen = await burnPoolV2.rewardCyclesLength();
+							const epochs = await burnPoolV2.epochs();
+
+							const rewardAmount = (await burnPoolV2.circBalance())
+								.mul(await burnPoolV2.rewardsAccrued())
+								.div(parseEther('1'));
+
+							const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
+
+							await expect(
+								burnPoolV2.checkStabilizerAndGetReward(-1, 10, parseEther('2'), parseEther('10000'))
+							).to
+								.emit(burnPoolV2, 'LogNewCouponCycle')
+								.withArgs(cycleLen, epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
 						});
 					});
 				});
