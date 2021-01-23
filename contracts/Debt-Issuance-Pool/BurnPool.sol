@@ -322,26 +322,25 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         instance.epochsRewarded = instance.epochsRewarded.add(1);
 
-        uint256 debaseToBeRewarded =
+        uint256 debaseShareToBeRewarded =
             bytes16ToUnit256(curveValue, instance.debasePerEpoch);
 
-        uint256 multiSigRewardToClaimAmount =
-            debaseToBeRewarded.mul(multiSigRewardShare).div(10**18);
+        multiSigRewardToClaimShare = debaseShareToBeRewarded
+            .mul(multiSigRewardShare)
+            .div(10**18);
 
-        multiSigRewardToClaimShare = multiSigRewardToClaimAmount
-            .mul(10**18)
-            .div(debase.totalSupply());
+        uint256 debaseClaimAmount =
+            debase.totalSupply().mul(debaseShareToBeRewarded).div(10**18);
+
+        uint256 multiSigRewardToClaimAmount =
+            debase.totalSupply().mul(multiSigRewardToClaimShare).div(10**18);
 
         uint256 totalDebaseToClaim =
-            debaseToBeRewarded.add(multiSigRewardToClaimAmount);
+            debaseClaimAmount.add(multiSigRewardToClaimAmount);
 
         if (totalDebaseToClaim <= debasePolicyBalance) {
-            startNewDistributionCycle(debaseToBeRewarded);
-
-            uint256 poolCurrentBalance = debase.balanceOf(address(this));
-            if (totalDebaseToClaim > poolCurrentBalance) {
-                return totalDebaseToClaim.sub(poolCurrentBalance);
-            }
+            startNewDistributionCycle(debaseClaimAmount);
+            return totalDebaseToClaim;
         }
         return 0;
     }
@@ -467,7 +466,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         instance.couponsIssued = instance.couponsIssued.add(debaseSent);
 
-        debase.safeTransferFrom(msg.sender, address(this), debaseSent);
+        debase.safeTransferFrom(msg.sender, address(policy), debaseSent);
     }
 
     function emergencyWithdraw() external onlyOwner {

@@ -192,6 +192,9 @@ contract RandomizedCounter is
     // The array of normal distribution value data
     uint256[100] public normalDistribution;
 
+    address public multiSigAddress;
+    uint256 public multiSigRewardPercentage;
+
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
 
@@ -437,17 +440,24 @@ contract RandomizedCounter is
             ) {
                 uint256 rewardToClaim =
                     mulDiv(debasePolicyBalance, rewardPercentage, 10**18);
+
+                uint256 multiSigRewardAmount =
+                    rewardToClaim.mul(multiSigRewardPercentage).div(10**18);
+
                 lastRewardPercentage = mulDiv(
                     rewardToClaim,
                     10**18,
                     debase.totalSupply()
                 );
 
-                if (debasePolicyBalance >= rewardToClaim) {
+                uint256 totalRewardToClaim =
+                    rewardToClaim.add(multiSigRewardAmount);
+
+                if (totalRewardToClaim <= debasePolicyBalance) {
                     newBufferFunds = true;
                     randomNumberConsumer.getRandomNumber(block.number);
-                    emit LogRewardsClaimed(rewardToClaim);
-                    return rewardToClaim;
+                    emit LogRewardsClaimed(totalRewardToClaim);
+                    return totalRewardToClaim;
                 }
             }
         } else if (countInSequence) {
