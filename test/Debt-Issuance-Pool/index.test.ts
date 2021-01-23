@@ -2,7 +2,7 @@ import { ethers, hardhatArguments, network } from 'hardhat';
 import { BigNumber, Signer } from 'ethers';
 import { expect } from 'chai';
 
-import { formatEther, id, parseEther, parseUnits } from 'ethers/lib/utils';
+import { formatEther, formatUnits, id, parseEther, parseUnits } from 'ethers/lib/utils';
 
 import BurnPoolArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/BurnPool.sol/BurnPool.json';
 import OracleArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/Oracle.sol/Oracle.json';
@@ -216,7 +216,7 @@ describe('Debt Issuance Pool', () => {
 			describe('Basic Functionality', () => {
 				describe('When first rebase has not fired', () => {
 					it('Users should be not able to buy coupons', async function() {
-						await debase.approve(burnPool.address, parseEther('10'));
+						await debaseUser.approve(burnPool.address, parseEther('10'));
 						await expect(burnPoolUser.buyCoupons(parseEther('10'))).to.be.revertedWith(
 							'Can only buy coupons with last rebase was negative'
 						);
@@ -315,11 +315,17 @@ describe('Debt Issuance Pool', () => {
 					describe('For positive supply delta rebase', () => {
 						let burnPoolV2: BurnPool;
 						let burnPoolUserV2: BurnPool;
+						let burnPoolUserMultiSig: BurnPool;
 						let oracleV2: Oracle;
 
 						before(async function() {
+							let multiSig = await ethers.provider.getSigner(
+								'0xf038c1cfadace2c0e5963ab5c0794b9575e1d2c2'
+							);
+
 							burnPoolV2 = await burnPoolFactory.deploy();
 							burnPoolUserV2 = burnPoolV2.connect(accounts[0]);
+							burnPoolUserMultiSig = burnPoolV2.connect(multiSig);
 							oracleV2 = await oracleFactory.deploy(debaseAddress, daiAddress, burnPoolV2.address);
 
 							await burnPoolV2.initialize(
@@ -429,6 +435,139 @@ describe('Debt Issuance Pool', () => {
 							).to
 								.emit(burnPoolV2, 'LogNewCouponCycle')
 								.withArgs(cycleLen, epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
+						});
+						it('There should be a reward cycles started afterwards', async function() {
+							expect(await burnPoolV2.rewardCyclesLength()).eq(1);
+						});
+
+						describe('When the next rebase is neutral happens followed by a negative ', () => {
+							before(async function() {
+								await burnPoolV2.checkStabilizerAndGetReward(
+									0,
+									10,
+									parseEther('2'),
+									parseEther('10000')
+								);
+							});
+							it('The enum should be set to neutral before negative rebase', async function() {
+								expect(await burnPoolV2.lastRebase()).eq(1);
+							});
+							it('On negative rebase it should start a new coupon cycle with the correct arguments', async function() {
+								const cycleLen = await burnPoolV2.rewardCyclesLength();
+								const epochs = await burnPoolV2.epochs();
+
+								const rewardAmount = (await burnPoolV2.circBalance())
+									.mul(await burnPoolV2.rewardsAccrued())
+									.div(parseEther('1'));
+
+								const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
+
+								await expect(
+									burnPoolV2.checkStabilizerAndGetReward(-1, 10, parseEther('2'), parseEther('10000'))
+								).to
+									.emit(burnPoolV2, 'LogNewCouponCycle')
+									.withArgs(cycleLen, epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
+							});
+							it('Reward cycles should be set to 2', async function() {
+								expect(await burnPoolV2.rewardCyclesLength()).eq(2);
+							});
+						});
+						describe('When next rebase goes from negative to a positive', () => {
+							describe('When no coupons are bought', () => {
+								it('On positive rebase no rewards distribution cycle should start', async function() {
+									await expect(
+										burnPoolV2.checkStabilizerAndGetReward(
+											parseEther('30000'),
+											10,
+											parseEther('2'),
+											parseEther('10000')
+										)
+									).to.not.emit(burnPoolV2, 'LogStartNewDistributionCycle');
+								});
+							});
+							describe('When coupons are bought', () => {
+								let debaseToBeRewarded: BigNumber;
+								before(async function() {
+									await burnPoolV2.checkStabilizerAndGetReward(
+										-1,
+										10,
+										parseEther('2'),
+										parseEther('10000')
+									);
+									await debaseUser.approve(burnPoolV2.address, parseEther('10'));
+									await burnPoolUserV2.buyCoupons(parseEther('10'));
+								});
+								it('On positive rebase rewards distribution cycle should start with the correct args', async function() {
+									const offset = parseUnits('195', 16);
+									const cycleLen = await burnPoolV2.rewardCyclesLength();
+									const value = await burnPoolV2.getCurveValue(
+										offset,
+										mean,
+										oneDivDeviationSqrtTwoPi,
+										twoDeviationSquare
+									);
+									const rewardCycle = await burnPoolV2.rewardCycles(cycleLen.sub(1));
+
+									const epochCycle = await burnPoolV2.epochs();
+									const debasePerEpoch = rewardCycle[1].div(epochCycle);
+									debaseToBeRewarded = await burnPoolV2.bytes16ToUnit256(value, debasePerEpoch);
+
+									const poolTotalShare = debaseToBeRewarded
+										.mul(parseEther('1'))
+										.div(await debase.totalSupply());
+
+									const rewardRate = poolTotalShare.div(84600);
+
+									await expect(
+										burnPoolV2.checkStabilizerAndGetReward(
+											parseEther('50000'),
+											10,
+											parseEther('3'),
+											parseEther('10000')
+										)
+									).to
+										.emit(burnPoolV2, 'LogStartNewDistributionCycle')
+										.withArgs(debaseToBeRewarded, poolTotalShare, rewardRate);
+								});
+								it('Epoch rewarded should be set to 1', async function() {
+									const cycleLen = await burnPoolV2.rewardCyclesLength();
+									const rewardCycle = await burnPoolV2.rewardCycles(cycleLen.sub(1));
+
+									expect(await rewardCycle[2]).eq(1);
+								});
+								describe('Multisig reward', () => {
+									it('Multisig claim should be correct', async function() {
+										const multiSigRewardToClaimAmount = debaseToBeRewarded
+											.mul(await burnPoolV2.multiSigRewardShare())
+											.div(parseEther('1'));
+
+										const share = multiSigRewardToClaimAmount
+											.mul(parseEther('1'))
+											.div(await debase.totalSupply());
+
+										expect(await burnPoolV2.multiSigRewardToClaimShare()).eq(share);
+									});
+									it('Multisig should get the correct reward amount', async function() {
+										const amountToClaim = (await debase.totalSupply())
+											.mul(await burnPoolV2.multiSigRewardToClaimShare())
+											.div(parseEther('1'));
+
+										const multiSigBalanceIncrease = (await debase.balanceOf(multiSigAddress)).add(
+											amountToClaim
+										);
+
+										await burnPoolUserMultiSig.multiSigRewardToClaimShare();
+										expect(await debase.balanceOf(multiSigAddress)).eq(multiSigBalanceIncrease);
+									});
+								});
+
+								// it('Rewards should be earnable', async function() {
+								// 	expect(await burnPoolV2.rewardCyclesLength()).eq(1);
+								// });
+								// it('Rewards should be claimable', async function() {
+								// 	expect(await burnPoolV2.rewardCyclesLength()).eq(1);
+								// });
+							});
 						});
 					});
 				});

@@ -323,7 +323,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     function claimMultiSigReward() external {
-        require(msg.sender == multiSigAddress);
+        require(msg.sender == multiSigAddress,"Only multiSigAddress can claim reward");
 
         uint256 amountToClaim =
             debase.totalSupply().mul(multiSigRewardToClaimShare).div(10**18);
