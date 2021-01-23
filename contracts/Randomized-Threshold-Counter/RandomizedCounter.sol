@@ -43,7 +43,6 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "hardhat/console.sol";
 
 interface IRandomNumberConsumer {
     function getRandomNumber(uint256 userProvidedSeed) external;
@@ -108,6 +107,8 @@ contract RandomizedCounter is
     event LogSetRandomNumberConsumer(
         IRandomNumberConsumer randomNumberConsumer_
     );
+    event LogSetMultiSigAddress(address multiSigAddress_);
+    event LogSetMultiSigRewardPercentage(uint256 multiSigRewardPercentage_);
     event LogRevokeRewardDuration(uint256 revokeRewardDuration_);
     event LogLastRandomThreshold(uint256 lastRandomThreshold_);
     event LogSetBlockDuration(uint256 blockDuration_);
@@ -194,6 +195,7 @@ contract RandomizedCounter is
 
     address public multiSigAddress;
     uint256 public multiSigRewardPercentage;
+    uint256 public multiSigRewardToClaimShare;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
@@ -211,22 +213,6 @@ contract RandomizedCounter is
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
         }
         _;
-    }
-
-    function mulDiv(
-        uint256 x,
-        uint256 y,
-        uint256 z
-    ) internal pure returns (uint256) {
-        uint256 a = x.div(z);
-        uint256 b = x.mod(z); // x = a * z + b
-        uint256 c = y.div(z);
-        uint256 d = y.mod(z); // y = c * z + d
-
-        uint256 res1 = a.mul(b).mul(z).add(a).mul(d);
-        uint256 res2 = b.mul(c).add(b.mul(d)).div(z);
-
-        return res1.add(res2);
     }
 
     /**
@@ -344,6 +330,19 @@ contract RandomizedCounter is
         emit LogSetRandomNumberConsumer(randomNumberConsumer);
     }
 
+    function setMultiSigRewardPercentage(uint256 multiSigRewardPercentage_)
+        external
+        onlyOwner
+    {
+        multiSigRewardPercentage = multiSigRewardPercentage_;
+        emit LogSetMultiSigRewardPercentage(multiSigRewardPercentage);
+    }
+
+    function setMultiSigAddress(address multiSigAddress_) external onlyOwner {
+        multiSigAddress = multiSigAddress_;
+        emit LogSetMultiSigAddress(multiSigAddress);
+    }
+
     /**
      * @notice Function to set the normal distribution array and its associated mean/deviation
      */
@@ -418,7 +417,7 @@ contract RandomizedCounter is
 
         if (newBufferFunds) {
             uint256 previousUnusedRewardToClaim =
-                mulDiv(debase.totalSupply(), lastRewardPercentage, 10**18);
+                debase.totalSupply().mul(lastRewardPercentage).div(10**18);
 
             if (
                 debase.balanceOf(address(this)) >= previousUnusedRewardToClaim
@@ -439,16 +438,18 @@ contract RandomizedCounter is
                 (beforePeriodFinish || block.number >= periodFinish)
             ) {
                 uint256 rewardToClaim =
-                    mulDiv(debasePolicyBalance, rewardPercentage, 10**18);
+                    debasePolicyBalance.mul(rewardPercentage).div(10**18);
 
                 uint256 multiSigRewardAmount =
                     rewardToClaim.mul(multiSigRewardPercentage).div(10**18);
 
-                lastRewardPercentage = mulDiv(
-                    rewardToClaim,
-                    10**18,
+                lastRewardPercentage = rewardToClaim.mul(10**18).div(
                     debase.totalSupply()
                 );
+
+                multiSigRewardToClaimShare = multiSigRewardAmount
+                    .mul(10**18)
+                    .div(debase.totalSupply());
 
                 uint256 totalRewardToClaim =
                     rewardToClaim.add(multiSigRewardAmount);
@@ -474,9 +475,7 @@ contract RandomizedCounter is
                         rewardRate.mul(revokeRewardDuration);
 
                     uint256 rewardToRevokeAmount =
-                        mulDiv(
-                            debase.totalSupply(),
-                            rewardToRevokeShare,
+                        debase.totalSupply().mul(rewardToRevokeShare).div(
                             10**18
                         );
 
@@ -507,9 +506,18 @@ contract RandomizedCounter is
         if (count >= lastRandomThreshold) {
             startNewDistributionCycle();
             count = 0;
+
+            if (multiSigRewardToClaimShare != 0) {
+                uint256 amountToClaim =
+                    debase.totalSupply().mul(multiSigRewardToClaimShare).div(
+                        10**18
+                    );
+                
+                debase.transfer(multiSigAddress, amountToClaim);
+            }
         } else {
             uint256 rewardToClaim =
-                mulDiv(debase.totalSupply(), lastRewardPercentage, 10**18);
+                debase.totalSupply().mul(lastRewardPercentage).div(10**18);
 
             debase.safeTransfer(policy, rewardToClaim);
             emit LogClaimRevoked(rewardToClaim);
@@ -605,7 +613,7 @@ contract RandomizedCounter is
             rewards[msg.sender] = 0;
 
             uint256 rewardToClaim =
-                mulDiv(debase.totalSupply(), reward, 10**18);
+                debase.totalSupply().mul(reward).div(10**18);
 
             debase.safeTransfer(msg.sender, rewardToClaim);
 
