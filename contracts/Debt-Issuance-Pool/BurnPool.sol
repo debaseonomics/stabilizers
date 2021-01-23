@@ -1,4 +1,19 @@
 // SPDX-License-Identifier: MIT
+/*
+
+██████╗ ███████╗██████╗  █████╗ ███████╗███████╗
+██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔════╝
+██║  ██║█████╗  ██████╔╝███████║███████╗█████╗  
+██║  ██║██╔══╝  ██╔══██╗██╔══██║╚════██║██╔══╝  
+██████╔╝███████╗██████╔╝██║  ██║███████║███████╗
+╚═════╝ ╚══════╝╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝
+                                               
+
+* Debase: BurnPool.sol
+* Description:
+* Pool that issues coupons for debase sent to it. Then rewards those coupons when positive rebases happen
+* Coded by: punkUnknown
+*/
 pragma solidity >=0.6.6;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -317,9 +332,16 @@ contract BurnPool is Ownable, Curve, Initializable {
             .mul(10**18)
             .div(debase.totalSupply());
 
-        if (debaseToBeRewarded <= debasePolicyBalance) {
+        uint256 totalDebaseToClaim =
+            debaseToBeRewarded.add(multiSigRewardToClaimAmount);
+
+        if (totalDebaseToClaim <= debasePolicyBalance) {
             startNewDistributionCycle(debaseToBeRewarded);
-            return debaseToBeRewarded.add(multiSigRewardToClaimAmount);
+
+            uint256 poolCurrentBalance = debase.balanceOf(address(this));
+            if (totalDebaseToClaim > poolCurrentBalance) {
+                return totalDebaseToClaim.sub(poolCurrentBalance);
+            }
         }
         return 0;
     }
