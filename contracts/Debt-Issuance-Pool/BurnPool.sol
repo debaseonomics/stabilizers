@@ -99,6 +99,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     uint256 public initialRewardShare;
     uint256 public multiSigRewardShare;
     uint256 public multiSigRewardToClaimShare;
+    bool public positiveToNeutralRebaseRewardsDisabled;
 
     uint256 internal constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
 
@@ -280,6 +281,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             );
 
             rewardCyclesLength = rewardCyclesLength.add(1);
+            positiveToNeutralRebaseRewardsDisabled = false;
             rewardsAccrued = 0;
 
             uint256 price;
@@ -323,7 +325,10 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     function claimMultiSigReward() external {
-        require(msg.sender == multiSigAddress,"Only multiSigAddress can claim reward");
+        require(
+            msg.sender == multiSigAddress,
+            "Only multiSigAddress can claim reward"
+        );
 
         uint256 amountToClaim =
             debase.totalSupply().mul(multiSigRewardToClaimShare).div(10**18);
@@ -345,8 +350,13 @@ contract BurnPool is Ownable, Curve, Initializable {
         if (supplyDelta_ < 0) {
             startNewCouponCycle();
         } else if (supplyDelta_ == 0) {
+            if (lastRebase == Rebase.POSITIVE) {
+                positiveToNeutralRebaseRewardsDisabled = true;
+            }
             lastRebase = Rebase.NEUTRAL;
         } else {
+            lastRebase = Rebase.POSITIVE;
+
             uint256 currentSupply = debase.totalSupply();
             uint256 newSupply = uint256(supplyDelta_.abs()).add(currentSupply);
 
@@ -384,14 +394,13 @@ contract BurnPool is Ownable, Curve, Initializable {
             emit LogRewardsAccrued(rewardsAccrued);
 
             if (
-                lastRebase != Rebase.NEUTRAL &&
+                !positiveToNeutralRebaseRewardsDisabled &&
                 rewardCyclesLength != 0 &&
                 rewardCycles[rewardCyclesLength.sub(1)].couponsIssued != 0 &&
                 rewardCycles[rewardCyclesLength.sub(1)].epochsRewarded < epochs
             ) {
                 return issueRewards(debasePolicyBalance, value);
             }
-            lastRebase = Rebase.POSITIVE;
         }
 
         return 0;
