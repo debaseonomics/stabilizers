@@ -35,8 +35,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     event LogStartNewDistributionCycle(
         uint256 rewardAmount_,
         uint256 poolShareAdded_,
-        uint256 rewardRate_,
-        uint256 periodFinish_
+        uint256 rewardRate_
     );
 
     event LogSetOracle(IOracle oracle_);
@@ -266,10 +265,8 @@ contract BurnPool is Ownable, Curve, Initializable {
                 RewardCycle(epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0)
             );
 
-            rewardCyclesLength = rewardCyclesLength.add(1);
-
             emit LogNewCouponCycle(
-                rewardCyclesLength.sub(1),
+                rewardCyclesLength,
                 epochs,
                 rewardShare,
                 0,
@@ -282,6 +279,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 0
             );
 
+            rewardCyclesLength = rewardCyclesLength.add(1);
             rewardsAccrued = 0;
 
             uint256 price;
@@ -301,8 +299,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     {
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
-        if (lastRebase != Rebase.POSITIVE) {
-            lastRebase = Rebase.POSITIVE;
+        if (instance.debasePerEpoch == 0) {
             instance.debasePerEpoch = instance.rewardShare.div(epochs);
         }
 
@@ -394,6 +391,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             ) {
                 return issueRewards(debasePolicyBalance, value);
             }
+            lastRebase = Rebase.POSITIVE;
         }
 
         return 0;
@@ -527,8 +525,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         emit LogStartNewDistributionCycle(
             amount,
             poolTotalShare,
-            instance.rewardRate,
-            instance.periodFinish
+            instance.rewardRate
         );
     }
 }
