@@ -2,7 +2,7 @@ import { ethers, network } from 'hardhat';
 import { BigNumber, Signer } from 'ethers';
 import { expect } from 'chai';
 
-import { parseEther, parseUnits } from 'ethers/lib/utils';
+import { formatEther, parseEther, parseUnits } from 'ethers/lib/utils';
 
 import BurnPoolArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/BurnPool.sol/BurnPool.json';
 import OracleArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/Oracle.sol/Oracle.json';
@@ -511,7 +511,7 @@ describe('Debt Issuance Pool', () => {
 									const debasePerEpoch = rewardCycle[1].div(epochCycle);
 									debaseShareToBeRewarded = await burnPoolV2.bytes16ToUnit256(value, debasePerEpoch);
 
-									const rewardRate = debaseShareToBeRewarded.div(86400);
+									const rewardRate = debaseShareToBeRewarded.div(10);
 
 									await expect(
 										burnPoolV2.checkStabilizerAndGetReward(
@@ -553,12 +553,19 @@ describe('Debt Issuance Pool', () => {
 										expect(await debase.balanceOf(multiSigAddress)).eq(multiSigBalanceIncrease);
 									});
 								});
-
-								// it('Rewards should be earnable', async function() {
-								// 	expect(await burnPoolV2.rewardCyclesLength()).eq(1);
-								// });
+								it('Rewards should be earnable', async function() {
+									let cycle = await burnPoolV2.rewardCyclesLength();
+									expect(await burnPoolUserV2.earned(cycle.sub(1))).to.not.eq(0);
+								});
 								// it('Rewards should be claimable', async function() {
-								// 	expect(await burnPoolV2.rewardCyclesLength()).eq(1);
+								// 	let cycle = await burnPoolV2.rewardCyclesLength();
+								// 	let balanceBefore = await debase.balanceOf(account1)
+
+								// 	let cycleDes = await burnPoolV2.rewardCycles(cycle.sub(1))
+								// 	console.log("Coupon Balance", formatEther(cycleDes[3]))
+
+								// 	await burnPoolUserV2.getReward(cycle.sub(1))
+								// 	expect(await debase.balanceOf(account1)).greaterThan(balanceBefore);
 								// });
 							});
 						});

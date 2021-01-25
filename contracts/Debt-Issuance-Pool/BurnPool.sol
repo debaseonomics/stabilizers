@@ -27,8 +27,6 @@ import "hardhat/console.sol";
 import "./Curve.sol";
 
 interface IDebasePolicy {
-    function minRebaseTimeIntervalSec() external view returns (uint256);
-
     function upperDeviationThreshold() external view returns (uint256);
 
     function lowerDeviationThreshold() external view returns (uint256);
@@ -53,6 +51,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     );
 
     event LogSetOracle(IOracle oracle_);
+    event LogSetBlockDuration(uint256 blockDuration_);
     event LogSetMultiSigRewardShare(uint256 multiSigRewardShare_);
     event LogSetInitialRewardShare(uint256 initialRewardShare_);
     event LogSetMultiSigAddress(address multiSigAddress_);
@@ -109,6 +108,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     uint256 public rewardsAccrued;
     uint256 public curveShifter;
+    uint256 public blockDuration = 10;
 
     uint256 public initialRewardShare;
     uint256 public multiSigRewardShare;
@@ -145,7 +145,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         instance.rewardPerTokenStored = rewardPerToken(index);
         instance.lastUpdateTime = lastRewardApplicable(index);
         if (account != address(0)) {
-            instance.rewards[account] = earned(account, index);
+            instance.rewards[account] = earned(index);
             instance.userRewardPerTokenPaid[account] = rewardCycles[index]
                 .rewardPerTokenStored;
         }
@@ -191,6 +191,11 @@ contract BurnPool is Ownable, Curve, Initializable {
     function setMultiSigAddress(address multiSigAddress_) external onlyOwner {
         multiSigAddress = multiSigAddress_;
         emit LogSetMultiSigAddress(multiSigAddress);
+    }
+
+    function setBlockDuration(uint256 blockDuration_) external onlyOwner {
+        blockDuration = blockDuration_;
+        emit LogSetBlockDuration(blockDuration);
     }
 
     function setMeanAndDeviationWithFormulaConstants(
@@ -488,6 +493,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         if (instance.couponsIssued == 0) {
             return instance.rewardPerTokenStored;
         }
+
         return
             instance.rewardPerTokenStored.add(
                 lastRewardApplicable(index)
@@ -498,11 +504,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             );
     }
 
-    function earned(address account, uint256 index)
-        public
-        view
-        returns (uint256)
-    {
+    function earned(uint256 index) public view returns (uint256) {
         require(rewardCyclesLength != 0, "Cycle array is empty");
         require(
             index <= rewardCyclesLength.sub(1),
@@ -510,17 +512,17 @@ contract BurnPool is Ownable, Curve, Initializable {
         );
 
         return
-            rewardCycles[index].userCouponBalances[account]
+            rewardCycles[index].userCouponBalances[msg.sender]
                 .mul(
                 rewardPerToken(index).sub(
-                    rewardCycles[index].userRewardPerTokenPaid[account]
+                    rewardCycles[index].userRewardPerTokenPaid[msg.sender]
                 )
             )
                 .div(10**18);
     }
 
     function getReward(uint256 index) public updateReward(msg.sender, index) {
-        uint256 reward = earned(msg.sender, index);
+        uint256 reward = earned(index);
 
         if (reward > 0) {
             RewardCycle storage instance = rewardCycles[index];
@@ -544,15 +546,19 @@ contract BurnPool is Ownable, Curve, Initializable {
     {
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
-        uint256 duration = policy.minRebaseTimeIntervalSec();
+        if (block.number >= instance.periodFinish) {
+            instance.rewardRate = poolTotalShare.div(blockDuration);
+        } else {
+            uint256 remaining = instance.periodFinish.sub(block.number);
+            uint256 leftover = remaining.mul(instance.rewardRate);
+            instance.rewardRate = poolTotalShare.add(leftover).div(
+                blockDuration
+            );
+        }
 
-        instance.rewardRate = poolTotalShare.div(duration);
-        instance.lastUpdateTime = block.timestamp;
-        instance.periodFinish = block.timestamp.add(duration);
+        instance.lastUpdateTime = block.number;
+        instance.periodFinish = block.number.add(blockDuration);
 
-        emit LogStartNewDistributionCycle(
-            poolTotalShare,
-            instance.rewardRate
-        );
+        emit LogStartNewDistributionCycle(poolTotalShare, instance.rewardRate);
     }
 }
