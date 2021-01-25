@@ -495,6 +495,7 @@ describe('Debt Issuance Pool', () => {
 									);
 									await debaseUser.approve(burnPoolV2.address, parseEther('10'));
 									await burnPoolUserV2.buyCoupons(parseEther('10'));
+									await debaseUser.transfer(burnPoolV2.address,parseEther("160"));
 								});
 								it('On positive rebase rewards distribution cycle should start with the correct args', async function() {
 									const offset = parseUnits('195', 16);
@@ -511,7 +512,7 @@ describe('Debt Issuance Pool', () => {
 									const debasePerEpoch = rewardCycle[1].div(epochCycle);
 									debaseShareToBeRewarded = await burnPoolV2.bytes16ToUnit256(value, debasePerEpoch);
 
-									const rewardRate = debaseShareToBeRewarded.div(10);
+									const rewardRate = debaseShareToBeRewarded.div(100);
 
 									await expect(
 										burnPoolV2.checkStabilizerAndGetReward(
@@ -530,6 +531,18 @@ describe('Debt Issuance Pool', () => {
 
 									expect(await rewardCycle[2]).eq(1);
 								});
+								it('Rewards should be earnable', async function() {
+									let cycle = await burnPoolV2.rewardCyclesLength();
+									expect(await burnPoolUserV2.earned(cycle.sub(1))).to.not.eq(0);
+								});
+								it('Rewards should be claimable', async function() {
+									let cycle = await burnPoolV2.rewardCyclesLength();
+
+									await expect(burnPoolUserV2.getReward(cycle.sub(1))).to.emit(
+										burnPoolV2,
+										'LogRewardClaimed'
+									);
+								});
 								describe('Multisig reward', () => {
 									it('Multisig claim should be correct', async function() {
 										const multiSigRewardToClaimShare = debaseShareToBeRewarded
@@ -540,6 +553,7 @@ describe('Debt Issuance Pool', () => {
 											multiSigRewardToClaimShare
 										);
 									});
+
 									it('Multisig should get the correct reward amount', async function() {
 										const multiSigRewardToClaimAmount = (await debase.totalSupply())
 											.mul(await burnPoolV2.multiSigRewardToClaimShare())
@@ -553,20 +567,6 @@ describe('Debt Issuance Pool', () => {
 										expect(await debase.balanceOf(multiSigAddress)).eq(multiSigBalanceIncrease);
 									});
 								});
-								it('Rewards should be earnable', async function() {
-									let cycle = await burnPoolV2.rewardCyclesLength();
-									expect(await burnPoolUserV2.earned(cycle.sub(1))).to.not.eq(0);
-								});
-								// it('Rewards should be claimable', async function() {
-								// 	let cycle = await burnPoolV2.rewardCyclesLength();
-								// 	let balanceBefore = await debase.balanceOf(account1)
-
-								// 	let cycleDes = await burnPoolV2.rewardCycles(cycle.sub(1))
-								// 	console.log("Coupon Balance", formatEther(cycleDes[3]))
-
-								// 	await burnPoolUserV2.getReward(cycle.sub(1))
-								// 	expect(await debase.balanceOf(account1)).greaterThan(balanceBefore);
-								// });
 							});
 						});
 					});

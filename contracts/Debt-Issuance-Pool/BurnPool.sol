@@ -108,7 +108,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     uint256 public rewardsAccrued;
     uint256 public curveShifter;
-    uint256 public blockDuration = 10;
+    uint256 public blockDuration = 100;
 
     uint256 public initialRewardShare;
     uint256 public multiSigRewardShare;
@@ -140,6 +140,12 @@ contract BurnPool is Ownable, Curve, Initializable {
     uint256 public rewardCyclesLength;
 
     modifier updateReward(address account, uint256 index) {
+        require(rewardCyclesLength != 0, "Cycle array is empty");
+        require(
+            index <= rewardCyclesLength.sub(1),
+            "Index should not me more than items in the cycle array"
+        );
+
         RewardCycle storage instance = rewardCycles[index];
 
         instance.rewardPerTokenStored = rewardPerToken(index);
@@ -510,15 +516,17 @@ contract BurnPool is Ownable, Curve, Initializable {
             index <= rewardCyclesLength.sub(1),
             "Index should not me more than items in the cycle array"
         );
+        RewardCycle storage instance = rewardCycles[index];
 
         return
-            rewardCycles[index].userCouponBalances[msg.sender]
+            instance.userCouponBalances[msg.sender]
                 .mul(
                 rewardPerToken(index).sub(
-                    rewardCycles[index].userRewardPerTokenPaid[msg.sender]
+                    instance.userRewardPerTokenPaid[msg.sender]
                 )
             )
-                .div(10**18);
+                .div(10**18)
+                .add(instance.rewards[msg.sender]);
     }
 
     function getReward(uint256 index) public updateReward(msg.sender, index) {
