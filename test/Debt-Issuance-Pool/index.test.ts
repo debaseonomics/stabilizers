@@ -1,8 +1,8 @@
-import { ethers, hardhatArguments, network } from 'hardhat';
+import { ethers, network } from 'hardhat';
 import { BigNumber, Signer } from 'ethers';
 import { expect } from 'chai';
 
-import { formatEther, formatUnits, id, parseEther, parseUnits } from 'ethers/lib/utils';
+import { parseEther, parseUnits } from 'ethers/lib/utils';
 
 import BurnPoolArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/BurnPool.sol/BurnPool.json';
 import OracleArtifact from '../../artifacts/contracts/Debt-Issuance-Pool/Oracle.sol/Oracle.json';
@@ -20,7 +20,6 @@ import { Erc20 } from '../../typechain/Erc20';
 import { DebasePolicy } from '../../typechain/DebasePolicy';
 import { UniswapV2Router02 } from '../../typechain/UniswapV2Router02';
 import { Debase } from '../../typechain/Debase';
-import { off } from 'process';
 
 describe('Debt Issuance Pool', () => {
 	let accounts: Signer[];
@@ -264,7 +263,7 @@ describe('Debt Issuance Pool', () => {
 							await debaseUser.approve(burnPool.address, parseEther('10'));
 							await expect(burnPoolUser.buyCoupons(parseEther('1'))).to
 								.emit(debase, 'Transfer')
-								.withArgs(account1, burnPool.address, parseEther('1'));
+								.withArgs(account1, policy, parseEther('1'));
 						});
 						it('User should emit update oracle event', async function() {
 							await debaseUser.approve(burnPool.address, parseEther('10'));
@@ -486,7 +485,7 @@ describe('Debt Issuance Pool', () => {
 								});
 							});
 							describe('When coupons are bought', () => {
-								let debaseToBeRewarded: BigNumber;
+								let debaseShareToBeRewarded: BigNumber;
 								before(async function() {
 									await burnPoolV2.checkStabilizerAndGetReward(
 										-1,
@@ -510,13 +509,9 @@ describe('Debt Issuance Pool', () => {
 
 									const epochCycle = await burnPoolV2.epochs();
 									const debasePerEpoch = rewardCycle[1].div(epochCycle);
-									debaseToBeRewarded = await burnPoolV2.bytes16ToUnit256(value, debasePerEpoch);
+									debaseShareToBeRewarded = await burnPoolV2.bytes16ToUnit256(value, debasePerEpoch);
 
-									const poolTotalShare = debaseToBeRewarded
-										.mul(parseEther('1'))
-										.div(await debase.totalSupply());
-
-									const rewardRate = poolTotalShare.div(84600);
+									const rewardRate = debaseShareToBeRewarded.div(86400);
 
 									await expect(
 										burnPoolV2.checkStabilizerAndGetReward(
@@ -527,7 +522,7 @@ describe('Debt Issuance Pool', () => {
 										)
 									).to
 										.emit(burnPoolV2, 'LogStartNewDistributionCycle')
-										.withArgs(debaseToBeRewarded, poolTotalShare, rewardRate);
+										.withArgs(debaseShareToBeRewarded, rewardRate);
 								});
 								it('Epoch rewarded should be set to 1', async function() {
 									const cycleLen = await burnPoolV2.rewardCyclesLength();
@@ -537,23 +532,21 @@ describe('Debt Issuance Pool', () => {
 								});
 								describe('Multisig reward', () => {
 									it('Multisig claim should be correct', async function() {
-										const multiSigRewardToClaimAmount = debaseToBeRewarded
+										const multiSigRewardToClaimShare = debaseShareToBeRewarded
 											.mul(await burnPoolV2.multiSigRewardShare())
 											.div(parseEther('1'));
 
-										const share = multiSigRewardToClaimAmount
-											.mul(parseEther('1'))
-											.div(await debase.totalSupply());
-
-										expect(await burnPoolV2.multiSigRewardToClaimShare()).eq(share);
+										expect(await burnPoolV2.multiSigRewardToClaimShare()).eq(
+											multiSigRewardToClaimShare
+										);
 									});
 									it('Multisig should get the correct reward amount', async function() {
-										const amountToClaim = (await debase.totalSupply())
+										const multiSigRewardToClaimAmount = (await debase.totalSupply())
 											.mul(await burnPoolV2.multiSigRewardToClaimShare())
 											.div(parseEther('1'));
 
 										const multiSigBalanceIncrease = (await debase.balanceOf(multiSigAddress)).add(
-											amountToClaim
+											multiSigRewardToClaimAmount
 										);
 
 										await burnPoolUserMultiSig.multiSigRewardToClaimShare();

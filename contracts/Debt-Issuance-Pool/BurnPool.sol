@@ -48,7 +48,6 @@ contract BurnPool is Ownable, Curve, Initializable {
     using SafeMathInt for int256;
 
     event LogStartNewDistributionCycle(
-        uint256 rewardAmount_,
         uint256 poolShareAdded_,
         uint256 rewardRate_
     );
@@ -339,7 +338,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             debaseClaimAmount.add(multiSigRewardToClaimAmount);
 
         if (totalDebaseToClaim <= debasePolicyBalance) {
-            startNewDistributionCycle(debaseClaimAmount);
+            startNewDistributionCycle(debaseShareToBeRewarded);
             return totalDebaseToClaim;
         }
         return 0;
@@ -539,13 +538,12 @@ contract BurnPool is Ownable, Curve, Initializable {
         }
     }
 
-    function startNewDistributionCycle(uint256 amount)
+    function startNewDistributionCycle(uint256 poolTotalShare)
         internal
         updateReward(address(0), rewardCyclesLength.sub(1))
     {
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
-        uint256 poolTotalShare = amount.mul(10**18).div(debase.totalSupply());
         uint256 duration = policy.minRebaseTimeIntervalSec();
 
         instance.rewardRate = poolTotalShare.div(duration);
@@ -553,7 +551,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         instance.periodFinish = block.timestamp.add(duration);
 
         emit LogStartNewDistributionCycle(
-            amount,
             poolTotalShare,
             instance.rewardRate
         );
