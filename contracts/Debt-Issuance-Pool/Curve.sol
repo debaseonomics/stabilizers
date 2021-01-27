@@ -1,4 +1,19 @@
 // SPDX-License-Identifier: MIT
+/*
+
+██████╗ ███████╗██████╗  █████╗ ███████╗███████╗
+██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔════╝
+██║  ██║█████╗  ██████╔╝███████║███████╗█████╗  
+██║  ██║██╔══╝  ██╔══██╗██╔══██║╚════██║██╔══╝  
+██████╔╝███████╗██████╔╝██║  ██║███████║███████╗
+╚═════╝ ╚══════╝╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝
+                                               
+
+* Debase: Curve.sol
+* Description:
+* Log normal curve to generate curve values in relation to curve input
+* Coded by: punkUnknown
+*/
 pragma solidity >=0.6.6;
 
 import "./lib/ABDKMathQuad.sol";

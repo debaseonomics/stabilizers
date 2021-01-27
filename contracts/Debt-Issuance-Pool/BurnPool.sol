@@ -349,9 +349,12 @@ contract BurnPool is Ownable, Curve, Initializable {
             debaseClaimAmount.add(multiSigRewardToClaimAmount);
 
         if (totalDebaseToClaim <= debasePolicyBalance) {
-            startNewDistributionCycle(debaseShareToBeRewarded);
+            startNewDistributionCycle(
+                totalDebaseToClaim,
+                debaseShareToBeRewarded
+            );
             LogTotalRewardClaimed(totalDebaseToClaim);
-            
+
             return totalDebaseToClaim;
         }
         return 0;
@@ -550,11 +553,19 @@ contract BurnPool is Ownable, Curve, Initializable {
         }
     }
 
-    function startNewDistributionCycle(uint256 poolTotalShare)
-        internal
-        updateReward(address(0), rewardCyclesLength.sub(1))
-    {
+    function startNewDistributionCycle(
+        uint256 totalDebaseToClaim,
+        uint256 poolTotalShare
+    ) internal updateReward(address(0), rewardCyclesLength.sub(1)) {
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
+
+        // https://sips.synthetix.io/sips/sip-77
+        uint256 poolBal =
+            totalDebaseToClaim.add(debase.balanceOf(address(this)));
+        require(
+            poolBal < uint256(-1) / 10**18,
+            "Rewards: rewards too large, would lock"
+        );
 
         if (block.number >= instance.periodFinish) {
             instance.rewardRate = poolTotalShare.div(blockDuration);
