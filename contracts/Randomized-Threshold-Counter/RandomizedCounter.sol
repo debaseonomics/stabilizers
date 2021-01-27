@@ -604,6 +604,12 @@ contract RandomizedCounter is
     }
 
     function startNewDistributionCycle() internal updateReward(address(0)) {
+        // https://sips.synthetix.io/sips/sip-77
+        require(
+            debase.balanceOf(address(this)) < uint256(-1) / 10**18,
+            "Rewards: rewards too large, would lock"
+        );
+
         if (block.number >= periodFinish) {
             rewardRate = lastRewardPercentage.div(blockDuration);
         } else {
