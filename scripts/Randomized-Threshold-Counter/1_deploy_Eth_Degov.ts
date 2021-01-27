@@ -41,10 +41,10 @@ async function main() {
 		const fee = parseUnits('2');
 		const debaseEthLp = '0xa8e5533d1e22be2df5e9ad9f67dd22a4e7d5b371';
 		const debasePolicy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
-		const rewardPercentage = parseUnits('1', 14);
+		const rewardPercentage = parseUnits('2', 14);
 		const duration = 60 * 60 * 24 * 7;
-		const userLpLimit = parseEther('3000');
-		const poolLpLimit = parseEther('40000');
+		const userLpLimit = parseUnits('3',13);
+		const poolLpLimit = parseUnits('4',14);
 		const revokeRewardPercentage = parseUnits('28', 16);
 		const normalDistributionMean = 0;
 		const normalDistributionDiv = 0;
