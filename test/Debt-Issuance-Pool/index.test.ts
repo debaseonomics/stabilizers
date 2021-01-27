@@ -117,7 +117,7 @@ describe('Debt Issuance Pool', () => {
 		const burnPool2 = '0xf5cB771023706Ca566eA6128b88e03A262737479';
 		const multiSigAddress = '0xf038c1cfadace2c0e5963ab5c0794b9575e1d2c2';
 
-		const epochs = 1;
+		const epochs = 2;
 		const oraclePeriod = 3;
 		const curveShifter = 0;
 		const initialRewardShare = parseUnits('5', 17);
@@ -256,7 +256,7 @@ describe('Debt Issuance Pool', () => {
 
 							await expect(burnPool.checkStabilizerAndGetReward(-1, 10, 0, parseEther('10'))).to
 								.emit(burnPool, 'LogNewCouponCycle')
-								.withArgs(0, 1, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
+								.withArgs(0, 2, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
 						});
 
 						it('User should be able to buy coupons and emit correct transfer event', async function() {
@@ -495,7 +495,7 @@ describe('Debt Issuance Pool', () => {
 									);
 									await debaseUser.approve(burnPoolV2.address, parseEther('10'));
 									await burnPoolUserV2.buyCoupons(parseEther('10'));
-									await debaseUser.transfer(burnPoolV2.address,parseEther("160"));
+									await debaseUser.transfer(burnPoolV2.address, parseEther('160'));
 								});
 								it('On positive rebase rewards distribution cycle should start with the correct args', async function() {
 									const offset = parseUnits('195', 16);
@@ -565,6 +565,65 @@ describe('Debt Issuance Pool', () => {
 
 										await burnPoolUserMultiSig.multiSigRewardToClaimShare();
 										expect(await debase.balanceOf(multiSigAddress)).eq(multiSigBalanceIncrease);
+									});
+								});
+								describe('When next rebase is positive', () => {
+									it('Should start new distribution cycle', async function() {
+										await expect(
+											burnPoolV2.checkStabilizerAndGetReward(
+												parseEther('50000'),
+												10,
+												parseEther('3'),
+												parseEther('10000')
+											)
+										).to.emit(burnPoolV2, 'LogStartNewDistributionCycle');
+									});
+
+									describe('When next rebase is positive again', () => {
+										it('Should not start new distribution cycle since epoch target is hit', async function() {
+											await expect(
+												burnPoolV2.checkStabilizerAndGetReward(
+													parseEther('50000'),
+													10,
+													parseEther('3'),
+													parseEther('10000')
+												)
+											).to.not.emit(burnPoolV2, 'LogStartNewDistributionCycle');
+										});
+									});
+
+									describe('When next rebase is neutral', () => {
+										it('No distribution cycle should start', async function() {
+											await expect(
+												burnPoolV2.checkStabilizerAndGetReward(
+													0,
+													10,
+													parseEther('3'),
+													parseEther('10000')
+												)
+											).to.not.emit(burnPoolV2, 'LogStartNewDistributionCycle');
+										});
+										it('Rewards should still be earnable', async function() {
+											let cycle = await burnPoolV2.rewardCyclesLength();
+											expect(await burnPoolUserV2.earned(cycle.sub(1))).to.not.eq(0);
+										});
+									});
+
+									describe('When next rebase is negative', () => {
+										it('New reward cycle should start', async function() {
+											await expect(
+												burnPoolV2.checkStabilizerAndGetReward(
+													-1,
+													10,
+													parseEther('3'),
+													parseEther('10000')
+												)
+											).to.emit(burnPoolV2, 'LogNewCouponCycle');
+										});
+										it('Rewards from previous cycle should still be earnable', async function() {
+											let cycle = await burnPoolV2.rewardCyclesLength();
+											expect(await burnPoolUserV2.earned(cycle.sub(2))).to.not.eq(0);
+										});
 									});
 								});
 							});

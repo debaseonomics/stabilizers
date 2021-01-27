@@ -50,6 +50,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 rewardRate_
     );
 
+    event LogTotalRewardClaimed(uint256 totalRewardClaimed_);
     event LogSetOracle(IOracle oracle_);
     event LogSetBlockDuration(uint256 blockDuration_);
     event LogSetMultiSigRewardShare(uint256 multiSigRewardShare_);
@@ -350,6 +351,8 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         if (totalDebaseToClaim <= debasePolicyBalance) {
             startNewDistributionCycle(debaseShareToBeRewarded);
+            LogTotalRewardClaimed(totalDebaseToClaim);
+            
             return totalDebaseToClaim;
         }
         return 0;
