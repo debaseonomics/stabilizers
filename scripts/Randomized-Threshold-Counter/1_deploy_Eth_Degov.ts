@@ -39,17 +39,17 @@ async function main() {
 		const link = '0x514910771af9ca656af840dff83e8264ecf986ca';
 		const multiSig = '0xf038C1cfaDAce2C0E5963Ab5C0794B9575e1D2c2';
 		const fee = parseUnits('2');
-		const degovEthLp = '0xfc835d90ea6557b57b29361d95c4584d389e6ee8';
+		const debaseEthLp = '0xa8e5533d1e22be2df5e9ad9f67dd22a4e7d5b371';
 		const debasePolicy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
-		const rewardPercentage = parseUnits('55', 14);
+		const rewardPercentage = parseUnits('1', 14);
 		const duration = 60 * 60 * 24 * 7;
-		const userLpLimit = parseEther('1000');
-		const poolLpLimit = parseEther('30000');
+		const userLpLimit = parseEther('3000');
+		const poolLpLimit = parseEther('40000');
 		const revokeRewardPercentage = parseUnits('28', 16);
-		const normalDistributionMean = 5;
-		const normalDistributionDiv = 2;
+		const normalDistributionMean = 0;
+		const normalDistributionDiv = 0;
 		//prettier-ignore
-		const normalDistribution = [8, 5, 4, 7, 10, 7, 5, 5, 3, 8, 5, 5, 3, 8, 4, 6, 5, 5, 3, 7, 6, 9, 8, 7, 6, 6, 5, 8, 6, 2, 8, 9, 5, 5, 4, 3, 8, 1, 5, 5, 5, 3, 5, 4, 8, 5, 6, 3, 4, 1, 3, 4, 3, 6, 4, 6, 5, 7, 6, 7, 5, 4, 1, 5, 6, 5, 7, 9, 3, 5, 4, 7, 3, 8, 7, 5, 5, 8, 0, 7, 4, 3, 6, 6, 4, 4, 5, 2, 4, 6, 6, 8, 8, 3, 7, 6, 7, 4, 4, 6]
+		const normalDistribution = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
 
 		const randomizedCounter = await randomizedCounterFactory.deploy();
 		const randomNumberConsumer = await randomNumberConsumerFactory.deploy(
@@ -63,7 +63,7 @@ async function main() {
 
 		const tx = await randomizedCounter.initialize(
 			debase.address,
-			degovEthLp,
+			debaseEthLp,
 			debasePolicy,
 			randomNumberConsumer.address,
 			link,
