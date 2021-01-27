@@ -73,6 +73,8 @@ async function main() {
 
 		await tx.wait(1);
 		await randomizedCounter.setBeforePeriodFinish(true);
+		await randomizedCounter.setRevokeReward(true)
+		await randomizedCounter.setRevokeRewardDuration(60*60*24)
 
 		console.log(randomizedCounter.address, randomNumberConsumer.address);
 	} catch (error) {
