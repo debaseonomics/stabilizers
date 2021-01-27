@@ -23,7 +23,6 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "./lib/SafeMathInt.sol";
-import "hardhat/console.sol";
 import "./Curve.sol";
 
 interface IDebasePolicy {

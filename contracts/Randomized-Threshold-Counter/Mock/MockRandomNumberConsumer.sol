@@ -3,7 +3,6 @@ pragma solidity >=0.6.6;
 
 import "../RandomizedCounter.sol";
 import "./Token.sol";
-import "hardhat/console.sol";
 
 contract MockRandomNumberConsumer {
     uint256 public fee;
