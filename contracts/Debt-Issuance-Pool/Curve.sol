@@ -23,6 +23,14 @@ contract Curve {
     bytes16 private TENE18 = 0x403abc16d674ec800000000000000000;
     bytes16 private ONE = 0x3fff0000000000000000000000000000;
 
+    /**
+     * @notice Function to calculate log normal values using the formula
+     * (1/offset * deviation * sqrt(2 * pi))* exp( -((ln offset - deviation)^2)/(2 * deviation^2) )
+     * @param priceDelta_ Used as offset for log normal curve
+     * @param mean_ Mean for log normal curve
+     * @param oneDivDeviationSqrtTwoPi_ Calculation of 1/(deviation * sqrt(2*pi))
+     * @param twoDeviationSquare_ Calculation of 2 * deviation^2
+     */
     function getCurveValue(
         uint256 priceDelta_,
         bytes16 mean_,
