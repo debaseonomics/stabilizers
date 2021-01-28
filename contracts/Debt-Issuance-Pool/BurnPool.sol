@@ -412,9 +412,9 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     /**
      * @notice Function that issues rewards when a positive rebase is about to happen.
-     * @param debasePolicyBalance
-     * @param curveValue
-     * @return
+     * @param debasePolicyBalance The current balance of the fund contract
+     * @param curveValue Value of the log normal curve
+     * @return Returns amount of rewards to be claimed from a positive rebase
      */
     function issueRewards(uint256 debasePolicyBalance, bytes16 curveValue)
         internal
@@ -422,22 +422,28 @@ contract BurnPool is Ownable, Curve, Initializable {
     {
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
+        // Percentage amount to be claimed per epoch. Only set at the start of first reward epoch.
+        // Its the result of reward expansion to give out div by number of epochs to give in
         if (instance.debasePerEpoch == 0) {
             instance.debasePerEpoch = instance.rewardShare.div(epochs);
         }
 
         instance.epochsRewarded = instance.epochsRewarded.add(1);
 
+        // Scale reward percentage in relation curve value
         uint256 debaseShareToBeRewarded =
             bytes16ToUnit256(curveValue, instance.debasePerEpoch);
 
+        // Claim multi sig reward in relation to scaled debase reward
         multiSigRewardToClaimShare = debaseShareToBeRewarded
             .mul(multiSigRewardShare)
             .div(10**18);
 
+        // Convert reward to token amount
         uint256 debaseClaimAmount =
             debase.totalSupply().mul(debaseShareToBeRewarded).div(10**18);
 
+        // Convert multisig reward to token amount
         uint256 multiSigRewardToClaimAmount =
             debase.totalSupply().mul(multiSigRewardToClaimShare).div(10**18);
 
@@ -445,6 +451,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             debaseClaimAmount.add(multiSigRewardToClaimAmount);
 
         if (totalDebaseToClaim <= debasePolicyBalance) {
+            // Start new reward distribution cycle in relation to just debase claim amount
             startNewDistributionCycle(
                 totalDebaseToClaim,
                 debaseShareToBeRewarded
@@ -457,7 +464,8 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     /**
-     * @notice
+     * @notice Function called by treasury to claim multi sig reward percentage. Since claims can only happen after the rebase reward
+     * contract has rewarded the pool
      */
     function claimMultiSigReward() external {
         require(
@@ -472,19 +480,19 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     /**
-     * @notice 123
-     * @param supplyDelta_
-     * @param rebaseLag_
-     * @param exchangeRate_
-     * @param debasePolicyBalance
-     * @return
+     * @notice Function called by the reward contract to start new distribution cycles
+     * @param supplyDelta_ Supply delta of the rebase to happen
+     * @param rebaseLag_ Rebase lag applied to the supply delta
+     * @param exchangeRate_ Exchange rate at which the rebase is happening
+     * @param debasePolicyBalance Current balance of the policy contract
+     * @return Amount of debase to be claimed from the reward contract
      */
     function checkStabilizerAndGetReward(
         int256 supplyDelta_,
         int256 rebaseLag_,
         uint256 exchangeRate_,
         uint256 debasePolicyBalance
-    ) external returns (uint256 rewardAmount_) {
+    ) external returns (uint256) {
         require(
             msg.sender == address(policy),
             "Only debase policy contract can call this"
@@ -507,14 +515,17 @@ contract BurnPool is Ownable, Curve, Initializable {
                 newSupply = MAX_SUPPLY;
             }
 
+            // Get the percentage expansion that will happen from the rebase
             uint256 expansionPercentage =
                 newSupply.mul(10**18).div(currentSupply).sub(10**18);
 
             uint256 targetRate =
                 policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
+            // Get the difference between the current price and the target price (1.05$ Dai)
             uint256 offset = exchangeRate_.add(curveShifter).sub(targetRate);
 
+            // Use the offset to get the current curve value
             bytes16 value =
                 getCurveValue(
                     offset,
@@ -523,12 +534,15 @@ contract BurnPool is Ownable, Curve, Initializable {
                     twoDeviationSquare
                 );
 
+            // Expansion percentage is scaled in relation to the value
             uint256 expansionPercentageScaled =
                 bytes16ToUnit256(value, expansionPercentage);
 
+            // On our first positive rebase rewardsAccrued rebase will be the expansion percentage
             if (rewardsAccrued == 0) {
                 rewardsAccrued = expansionPercentageScaled;
             } else {
+                // Subsequest positive rebases will be compounded with previous rebases
                 rewardsAccrued = rewardsAccrued
                     .mul(expansionPercentageScaled)
                     .div(10**18);
@@ -536,6 +550,11 @@ contract BurnPool is Ownable, Curve, Initializable {
 
             emit LogRewardsAccrued(rewardsAccrued);
 
+            // Rewards will not be issued if
+            // 1. We go from neutral to positive and back to neutral rebase
+            // 2. If now reward cycle has happened
+            // 3. If no coupons bought in the expansion cycle
+            // 4. If not all epochs have been rewarded
             if (
                 !positiveToNeutralRebaseRewardsDisabled &&
                 rewardCyclesLength != 0 &&
@@ -550,7 +569,8 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     /**
-     * @notice
+     * @notice Function that checks the currect price of the coupon oracle. If oracle price period has finished
+     * then another oracle update is called.
      */
     function checkPriceOrUpdate() internal {
         uint256 lowerPriceThreshold =
@@ -576,8 +596,11 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     /**
-     * @notice
-     * @param debaseSent
+     * @notice Function that allows users to buy coupuns by send in debase to the contract. When ever coupons are being bought
+     * the current we check the TWAP price of the debase pair. If the price is above the lower threshold price (0.95 dai)
+     * then no coupons can be bought. If the price is below than coupons can be bought. The debase sent are routed to the
+     * reward contract.
+     * @param debaseSent Debase amount sent
      */
     function buyCoupons(uint256 debaseSent) external {
         require(
@@ -598,20 +621,12 @@ contract BurnPool is Ownable, Curve, Initializable {
         debase.safeTransferFrom(msg.sender, address(policy), debaseSent);
     }
 
-    /**
-     * @notice
-     */
     function emergencyWithdraw() external onlyOwner {
         uint256 withdrawAmount = debase.balanceOf(address(this));
         debase.safeTransfer(address(policy), withdrawAmount);
         emit LogEmergencyWithdrawa(withdrawAmount);
     }
 
-    /**
-     * @notice
-     * @param index
-     * @return
-     */
     function lastRewardApplicable(uint256 index)
         internal
         view
@@ -620,11 +635,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         return Math.min(block.timestamp, rewardCycles[index].periodFinish);
     }
 
-    /**
-     * @notice
-     * @param index
-     * @return
-     */
     function rewardPerToken(uint256 index) internal view returns (uint256) {
         RewardCycle memory instance = rewardCycles[index];
 
@@ -642,11 +652,6 @@ contract BurnPool is Ownable, Curve, Initializable {
             );
     }
 
-    /**
-     * @notice
-     * @param index
-     * @return
-     */
     function earned(uint256 index) public view returns (uint256) {
         require(rewardCyclesLength != 0, "Cycle array is empty");
         require(
@@ -666,11 +671,6 @@ contract BurnPool is Ownable, Curve, Initializable {
                 .add(instance.rewards[msg.sender]);
     }
 
-    /**
-     * @notice
-     * @param index
-     * @return
-     */
     function getReward(uint256 index) public updateReward(msg.sender, index) {
         uint256 reward = earned(index);
 
@@ -690,12 +690,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         }
     }
 
-    /**
-     * @notice
-     * @param index
-     * @param poolTotalShare
-     * @return
-     */
     function startNewDistributionCycle(
         uint256 totalDebaseToClaim,
         uint256 poolTotalShare
