@@ -86,57 +86,91 @@ contract BurnPool is Ownable, Curve, Initializable {
     );
 
     event LogOraclePriceAndPeriod(uint256 price_, uint256 period_);
-
-    IDebasePolicy public policy;
-    IERC20 public debase;
-    IOracle public oracle;
-    address public multiSigAddress;
-
-    address public burnPool1;
-    address public burnPool2;
-
-    bytes16 public mean;
-    bytes16 public deviation;
-    bytes16 public oneDivDeviationSqrtTwoPi;
-    bytes16 public twoDeviationSquare;
-
-    uint256 public epochs;
-    uint256 public totalRewardsDistributed;
-
-    uint256 public oraclePeriod;
-    uint256 public oracleNextUpdate;
-
-    uint256 public rewardsAccrued;
-    uint256 public curveShifter;
-    uint256 public blockDuration = 100;
-
-    uint256 public initialRewardShare;
-    uint256 public multiSigRewardShare;
-    uint256 public multiSigRewardToClaimShare;
-    bool public positiveToNeutralRebaseRewardsDisabled;
-
     uint256 internal constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
 
+    // Address of the debase policy/reward contract
+    IDebasePolicy public policy;
+    // Address of the debase token
+    IERC20 public debase;
+    // Address of the oracle contract managing opening and closing of coupon buying
+    IOracle public oracle;
+    // Address of the multiSig treasury
+    address public multiSigAddress;
+
+    // Address of dai staking pool with burned tokens
+    address public burnPool1;
+    // Address of debase/dai staking pool with burned tokens
+    address public burnPool2;
+
+    // Mean for log normal distribution
+    bytes16 public mean;
+    // Deviation for log normal distribution
+    bytes16 public deviation;
+    // Result of 1/(Deviation*Sqrt(2*pi)) for optimized log normal calculation
+    bytes16 public oneDivDeviationSqrtTwoPi;
+    // Result of 2*(Deviation)^2 for optimized log normal calculation
+    bytes16 public twoDeviationSquare;
+
+    // The number rebases coupon rewards can be distributed for
+    uint256 public epochs;
+    // The total rewards in %s of the market cap distributed
+    uint256 public totalRewardsDistributed;
+
+    // The period after which the oracle price updates for coupon buying
+    uint256 public oraclePeriod;
+    // The block number when the oracle with update next
+    uint256 public oracleNextUpdate;
+
+    // Tracking supply expansion in relation to total supply.
+    // To be given out as rewards after the next contraction
+    uint256 public rewardsAccrued;
+    // Offset to shift the log normal curve
+    uint256 public curveShifter;
+    // The  block duration over which rewards are given out
+    uint256 public blockDuration = 100;
+
+    // The percentage of the total supply to be given out on the first instance
+    // when the pool launches and the next rebase is negative
+    uint256 public initialRewardShare;
+    // The percentage of the current reward to be given in an epoch to be routed to the treasury
+    uint256 public multiSigRewardShare;
+    // The percentage of the total supply that can be claimed as rewards for the treasury
+    uint256 public multiSigRewardToClaimShare;
+    // Flag to stop rewards to be given out if rebases go from positive to neutral
+    bool public positiveToNeutralRebaseRewardsDisabled;
+
     enum Rebase {POSITIVE, NEUTRAL, NEGATIVE, NONE}
+    // Showing last rebase that happened
     Rebase public lastRebase;
 
+    // Struct saving the data related rebase cycles
     struct RewardCycle {
+        // Shows the number of epoch(rebases) to distribute rewards for
         uint256 epochsToReward;
+        // Shows the %s of the totalSupply to be given as reward
         uint256 rewardShare;
+        // Shows the number of epochs(rebases) rewarded
         uint256 epochsRewarded;
+        // The number if coupouns issued/Debase sold in the contraction cycle
         uint256 couponsIssued;
+        // The reward Rate for the distribution cycle
         uint256 rewardRate;
+        // The period over to distribute rewards for a single epoch/cycle
         uint256 periodFinish;
         uint256 lastUpdateTime;
         uint256 rewardPerTokenStored;
+        // The debase to be rewarded as per the epoch
         uint256 debasePerEpoch;
+        // The rewards distributed in %s of the total supply in reward cycle
         uint256 rewardDistributed;
         mapping(address => uint256) userCouponBalances;
         mapping(address => uint256) userRewardPerTokenPaid;
         mapping(address => uint256) rewards;
     }
 
+    // Array of rebase cycles
     RewardCycle[] public rewardCycles;
+    // Lenght of the rebase cycles
     uint256 public rewardCyclesLength;
 
     modifier updateReward(address account, uint256 index) {
@@ -158,26 +192,46 @@ contract BurnPool is Ownable, Curve, Initializable {
         _;
     }
 
+    /**
+     * @notice Function to set the oracle period after which the price updates
+     * @param oraclePeriod_ New oracle period
+     */
     function setOraclePeriod(uint256 oraclePeriod_) external onlyOwner {
         oraclePeriod = oraclePeriod_;
         emit LogSetOraclePeriod(oraclePeriod);
     }
 
+    /**
+     * @notice Function to set the offest by which to shift the log normal curve
+     * @param curveShifter_ New curve offset
+     */
     function setCurveShifter(uint256 curveShifter_) external onlyOwner {
         curveShifter = curveShifter_;
         emit LogSetCurveShifter(curveShifter);
     }
 
+    /**
+     * @notice Function to set the number of epochs/rebase triggers over which to distribute rewards
+     * @param epochs_ New rewards epoch
+     */
     function setEpochs(uint256 epochs_) external onlyOwner {
         epochs = epochs_;
         emit LogSetEpochs(epochs);
     }
 
+    /**
+     * @notice Function to set the oracle address for the coupon buying and closing
+     * @param oracle_ Address of the new oracle
+     */
     function setOracle(IOracle oracle_) external onlyOwner {
         oracle = oracle_;
         emit LogSetOracle(oracle);
     }
 
+    /**
+     * @notice Function to set the initial reward if the pools first rebase is negative
+     * @param initialRewardShare_ New initial reward share in %s
+     */
     function setInitialRewardShare(uint256 initialRewardShare_)
         external
         onlyOwner
@@ -186,6 +240,10 @@ contract BurnPool is Ownable, Curve, Initializable {
         emit LogSetInitialRewardShare(initialRewardShare);
     }
 
+    /**
+     * @notice Function to set the share of the epoch reward to be given out to treasury
+     * @param multiSigRewardShare_ New multiSig reward share in 5s
+     */
     function setMultiSigRewardShare(uint256 multiSigRewardShare_)
         external
         onlyOwner
@@ -194,16 +252,31 @@ contract BurnPool is Ownable, Curve, Initializable {
         emit LogSetMultiSigRewardShare(multiSigRewardShare);
     }
 
+    /**
+     * @notice Function to set the multiSig treasury address to get treasury rewards
+     * @param multiSigAddress_ New multi sig treasury address
+     */
     function setMultiSigAddress(address multiSigAddress_) external onlyOwner {
         multiSigAddress = multiSigAddress_;
         emit LogSetMultiSigAddress(multiSigAddress);
     }
 
+    /**
+     * @notice Function to set the reward duration for a single epoch reward period
+     * @param blockDuration_ New block duration period
+     */
     function setBlockDuration(uint256 blockDuration_) external onlyOwner {
         blockDuration = blockDuration_;
         emit LogSetBlockDuration(blockDuration);
     }
 
+    /**
+     * @notice Function to set the mean,deviation and formula constants for log normals curve
+     * @param mean_ New log normal mean
+     * @param deviation_ New log normal deviation
+     * @param oneDivDeviationSqrtTwoPi_ New Result of 1/(Deviation*Sqrt(2*pi))
+     * @param twoDeviationSquare_ New Result of 2*(Deviation)^2
+     */
     function setMeanAndDeviationWithFormulaConstants(
         bytes16 mean_,
         bytes16 deviation_,
@@ -223,6 +296,9 @@ contract BurnPool is Ownable, Curve, Initializable {
         );
     }
 
+    /**
+     * @notice Function that initializes set of variables for the pool on launch
+     */
     function initialize(
         address debase_,
         IOracle oracle_,
@@ -260,6 +336,10 @@ contract BurnPool is Ownable, Curve, Initializable {
         lastRebase = Rebase.NONE;
     }
 
+    /**
+     * @notice Function that shows the current circulating balance
+     * @return Returns circulating balance
+     */
     function circBalance() public view returns (uint256) {
         uint256 totalSupply = debase.totalSupply();
 
@@ -270,13 +350,21 @@ contract BurnPool is Ownable, Curve, Initializable {
                 .sub(debase.balanceOf(burnPool2));
     }
 
+    /**
+     * @notice Function that is called when the next rebase is negative. If the last rebase was not negative then a
+     * new coupon cycle starts. If the last rebase was also negative when nothing happens.
+     */
     function startNewCouponCycle() internal {
         if (lastRebase != Rebase.NEGATIVE) {
             lastRebase = Rebase.NEGATIVE;
 
             uint256 rewardAmount;
 
+            // For the special case when the pool launches and the next rebase is negative. Meaning no rewards are accured from
+            // positive expansion and hence no negaitve reward cycles have started. Then we use our reward as the inital reward
+            // setting too bootstrap the pool.
             if (rewardsAccrued == 0 && rewardCyclesLength == 0) {
+                // Get reward in relation to circulating balance multiplied by share
                 rewardAmount = circBalance().mul(initialRewardShare).div(
                     10**18
                 );
@@ -284,6 +372,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 rewardAmount = circBalance().mul(rewardsAccrued).div(10**18);
             }
 
+            // Scale reward amount in relation debase total supply
             uint256 rewardShare =
                 rewardAmount.mul(10**18).div(debase.totalSupply());
 
@@ -312,6 +401,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 price;
             bool valid;
 
+            // Get current price for the debase dai pair
             (price, valid) = oracle.getData();
             require(valid, "Price is invalid");
 
@@ -320,6 +410,12 @@ contract BurnPool is Ownable, Curve, Initializable {
         }
     }
 
+    /**
+     * @notice Function that issues rewards when a positive rebase is about to happen.
+     * @param debasePolicyBalance
+     * @param curveValue
+     * @return
+     */
     function issueRewards(uint256 debasePolicyBalance, bytes16 curveValue)
         internal
         returns (uint256)
@@ -360,6 +456,9 @@ contract BurnPool is Ownable, Curve, Initializable {
         return 0;
     }
 
+    /**
+     * @notice
+     */
     function claimMultiSigReward() external {
         require(
             msg.sender == multiSigAddress,
@@ -372,6 +471,14 @@ contract BurnPool is Ownable, Curve, Initializable {
         multiSigRewardToClaimShare = 0;
     }
 
+    /**
+     * @notice 123
+     * @param supplyDelta_
+     * @param rebaseLag_
+     * @param exchangeRate_
+     * @param debasePolicyBalance
+     * @return
+     */
     function checkStabilizerAndGetReward(
         int256 supplyDelta_,
         int256 rebaseLag_,
@@ -442,6 +549,9 @@ contract BurnPool is Ownable, Curve, Initializable {
         return 0;
     }
 
+    /**
+     * @notice
+     */
     function checkPriceOrUpdate() internal {
         uint256 lowerPriceThreshold =
             policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
@@ -465,6 +575,10 @@ contract BurnPool is Ownable, Curve, Initializable {
         );
     }
 
+    /**
+     * @notice
+     * @param debaseSent
+     */
     function buyCoupons(uint256 debaseSent) external {
         require(
             lastRebase == Rebase.NEGATIVE,
@@ -484,12 +598,20 @@ contract BurnPool is Ownable, Curve, Initializable {
         debase.safeTransferFrom(msg.sender, address(policy), debaseSent);
     }
 
+    /**
+     * @notice
+     */
     function emergencyWithdraw() external onlyOwner {
         uint256 withdrawAmount = debase.balanceOf(address(this));
         debase.safeTransfer(address(policy), withdrawAmount);
         emit LogEmergencyWithdrawa(withdrawAmount);
     }
 
+    /**
+     * @notice
+     * @param index
+     * @return
+     */
     function lastRewardApplicable(uint256 index)
         internal
         view
@@ -498,6 +620,11 @@ contract BurnPool is Ownable, Curve, Initializable {
         return Math.min(block.timestamp, rewardCycles[index].periodFinish);
     }
 
+    /**
+     * @notice
+     * @param index
+     * @return
+     */
     function rewardPerToken(uint256 index) internal view returns (uint256) {
         RewardCycle memory instance = rewardCycles[index];
 
@@ -515,6 +642,11 @@ contract BurnPool is Ownable, Curve, Initializable {
             );
     }
 
+    /**
+     * @notice
+     * @param index
+     * @return
+     */
     function earned(uint256 index) public view returns (uint256) {
         require(rewardCyclesLength != 0, "Cycle array is empty");
         require(
@@ -534,6 +666,11 @@ contract BurnPool is Ownable, Curve, Initializable {
                 .add(instance.rewards[msg.sender]);
     }
 
+    /**
+     * @notice
+     * @param index
+     * @return
+     */
     function getReward(uint256 index) public updateReward(msg.sender, index) {
         uint256 reward = earned(index);
 
@@ -553,6 +690,12 @@ contract BurnPool is Ownable, Curve, Initializable {
         }
     }
 
+    /**
+     * @notice
+     * @param index
+     * @param poolTotalShare
+     * @return
+     */
     function startNewDistributionCycle(
         uint256 totalDebaseToClaim,
         uint256 poolTotalShare
