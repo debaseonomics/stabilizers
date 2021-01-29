@@ -14,6 +14,8 @@
       "./node_modules/@nomiclabs/hardhat-waffle/src/type-extensions.ts",
       "./node_modules/hardhat-typechain/src/type-extensions.ts",
       "./node_modules/@nomiclabs/hardhat-etherscan/src/type-extensions.ts",
+      "./node_modules/@tenderly/hardhat-tenderly/dist/type-extensions.d.ts",
+      "./node_modules/hardhat-gas-reporter/dist/src/type-extensions.d.ts"
     ]
 }
   
