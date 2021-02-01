@@ -22,6 +22,7 @@ import "@openzeppelin/contracts/math/Math.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
+import '@openzeppelin/contracts/utils/Address.sol';
 import "./lib/SafeMathInt.sol";
 import "./Curve.sol";
 
@@ -43,6 +44,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
     using SafeMathInt for int256;
+    using Address for address;
 
     event LogStartNewDistributionCycle(
         uint256 poolShareAdded_,
@@ -106,6 +108,8 @@ contract BurnPool is Ownable, Curve, Initializable {
     bytes16 public mean;
     // Deviation for log normal distribution
     bytes16 public deviation;
+    // Multiplied into log normal curve to raise or lower the peak. Initially set to 1 in bytes16
+    bytes16 public peakScaler = 0x3fff0000000000000000000000000000;
     // Result of 1/(Deviation*Sqrt(2*pi)) for optimized log normal calculation
     bytes16 public oneDivDeviationSqrtTwoPi;
     // Result of 2*(Deviation)^2 for optimized log normal calculation
@@ -274,17 +278,20 @@ contract BurnPool is Ownable, Curve, Initializable {
      * @notice Function to set the mean,deviation and formula constants for log normals curve
      * @param mean_ New log normal mean
      * @param deviation_ New log normal deviation
+     * @param peakScaler_ New peak scaler value
      * @param oneDivDeviationSqrtTwoPi_ New Result of 1/(Deviation*Sqrt(2*pi))
      * @param twoDeviationSquare_ New Result of 2*(Deviation)^2
      */
     function setMeanAndDeviationWithFormulaConstants(
         bytes16 mean_,
         bytes16 deviation_,
+        bytes16 peakScaler_,
         bytes16 oneDivDeviationSqrtTwoPi_,
         bytes16 twoDeviationSquare_
     ) external onlyOwner {
         mean = mean_;
         deviation = deviation_;
+        peakScaler = peakScaler_;
         oneDivDeviationSqrtTwoPi = oneDivDeviationSqrtTwoPi_;
         twoDeviationSquare = twoDeviationSquare_;
 
@@ -294,6 +301,25 @@ contract BurnPool is Ownable, Curve, Initializable {
             oneDivDeviationSqrtTwoPi,
             twoDeviationSquare
         );
+    }
+
+    /**
+     * @notice Function that returns user coupon balance at the specified index
+     * @param index Cycle array index at which to get coupon balance from
+     */
+    function getUserCouponBalance(uint256 index)
+        external
+        view
+        returns (uint256)
+    {
+        require(rewardCyclesLength != 0, "Cycle array is empty");
+        require(
+            index <= rewardCyclesLength.sub(1),
+            "Index should not me more than items in the cycle array"
+        );
+
+        RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
+        return instance.userCouponBalances[msg.sender];
     }
 
     /**
@@ -603,6 +629,10 @@ contract BurnPool is Ownable, Curve, Initializable {
      * @param debaseSent Debase amount sent
      */
     function buyCoupons(uint256 debaseSent) external {
+        require(
+            !address(msg.sender).isContract(),
+            "Caller must not be a contract"
+        );
         require(
             lastRebase == Rebase.NEGATIVE,
             "Can only buy coupons with last rebase was negative"
