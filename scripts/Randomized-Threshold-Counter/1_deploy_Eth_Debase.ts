@@ -30,13 +30,13 @@ async function main() {
 		const multiSig = '0xf038C1cfaDAce2C0E5963Ab5C0794B9575e1D2c2';
 		const fee = parseUnits('2');
 
-		const debase = '0x9248c485b0B80f76DA451f167A8db30F33C70907'
+		const debase = '0x9248c485b0B80f76DA451f167A8db30F33C70907';
 		const debaseEthLp = '0xa8e5533d1e22be2df5e9ad9f67dd22a4e7d5b371';
 		const debasePolicy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
 		const rewardPercentage = parseUnits('2', 14);
 		const duration = 60 * 60 * 24 * 7;
-		const userLpLimit = parseUnits('3',13);
-		const poolLpLimit = parseUnits('4',14);
+		const userLpLimit = parseUnits('3', 13);
+		const poolLpLimit = parseUnits('4', 14);
 		const revokeRewardPercentage = parseUnits('28', 16);
 		const normalDistributionMean = 0;
 		const normalDistributionDiv = 0;
@@ -73,8 +73,8 @@ async function main() {
 
 		await tx.wait(1);
 		await randomizedCounter.setBeforePeriodFinish(true);
-		await randomizedCounter.setRevokeReward(true)
-		await randomizedCounter.setRevokeRewardDuration(60*60*24)
+		await randomizedCounter.setRevokeReward(true);
+		await randomizedCounter.setRevokeRewardDuration(60 * 60 * 24);
 
 		console.log(randomizedCounter.address, randomNumberConsumer.address);
 	} catch (error) {
