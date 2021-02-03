@@ -49,11 +49,12 @@ contract BurnPool is Ownable, Curve, Initializable {
     event LogStartNewDistributionCycle(
         uint256 poolShareAdded_,
         uint256 rewardRate_,
-        uint256 periodFinish_
+        uint256 periodFinish_,
+        bytes16 curvrValue_
     );
 
     event LogSetOracle(IOracle oracle_);
-    event LogSetBlockDuration(uint256 blockDuration_);
+    event LogSetRewardBlockPeriod(uint256 rewardBlockPeriod_);
     event LogSetMultiSigRewardShare(uint256 multiSigRewardShare_);
     event LogSetInitialRewardShare(uint256 initialRewardShare_);
     event LogSetMultiSigAddress(address multiSigAddress_);
@@ -283,9 +284,12 @@ contract BurnPool is Ownable, Curve, Initializable {
      * @notice Function to set the reward duration for a single epoch reward period
      * @param rewardBlockPeriod_ New block duration period
      */
-    function setBlockDuration(uint256 rewardBlockPeriod_) external onlyOwner {
+    function setRewardBlockPeriod(uint256 rewardBlockPeriod_)
+        external
+        onlyOwner
+    {
         rewardBlockPeriod = rewardBlockPeriod_;
-        emit LogSetBlockDuration(rewardBlockPeriod);
+        emit LogSetRewardBlockPeriod(rewardBlockPeriod);
     }
 
     /**
@@ -508,7 +512,8 @@ contract BurnPool is Ownable, Curve, Initializable {
             // Start new reward distribution cycle in relation to just debase claim amount
             startNewDistributionCycle(
                 totalDebaseToClaim,
-                debaseShareToBeRewarded
+                debaseShareToBeRewarded,
+                curveValue
             );
 
             return totalDebaseToClaim;
@@ -755,7 +760,8 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     function startNewDistributionCycle(
         uint256 totalDebaseToClaim,
-        uint256 poolTotalShare
+        uint256 poolTotalShare,
+        bytes16 curveValue
     ) internal updateReward(address(0), rewardCyclesLength.sub(1)) {
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
@@ -785,7 +791,8 @@ contract BurnPool is Ownable, Curve, Initializable {
         emit LogStartNewDistributionCycle(
             poolTotalShare,
             instance.rewardRate,
-            instance.periodFinish
+            instance.periodFinish,
+            curveValue
         );
     }
 }

@@ -581,7 +581,8 @@ describe('Debt Issuance Pool', () => {
 										.withArgs(
 											debaseShareToBeRewarded,
 											rewardRate,
-											periodDuration.toNumber() + period + 1
+											periodDuration.toNumber() + period + 1,
+											value
 										);
 								});
 								it('Epoch rewarded should be set to 1', async function() {
