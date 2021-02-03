@@ -17,7 +17,7 @@ import { RandomizedCounter } from '../../typechain/RandomizedCounter';
 import { Debase } from '../../typechain/Debase';
 import { MockRandomNumberConsumer } from '../../typechain/MockRandomNumberConsumer';
 
-import { formatEther, parseEther, parseUnits } from 'ethers/lib/utils';
+import { parseEther, parseUnits } from 'ethers/lib/utils';
 
 describe('Debase/Dai Randomized Counter', function() {
 	let accounts: Signer[];

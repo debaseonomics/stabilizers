@@ -118,7 +118,7 @@ describe('Debt Issuance Pool', () => {
 		const multiSigAddress = '0xf038c1cfadace2c0e5963ab5c0794b9575e1d2c2';
 
 		const epochs = 2;
-		const oraclePeriod = 3;
+		const oracleBlockPeriod = 3;
 		const curveShifter = 0;
 		const initialRewardShare = parseUnits('5', 17);
 		const multiSigReward = 0;
@@ -140,7 +140,7 @@ describe('Debt Issuance Pool', () => {
 				burnPool1,
 				burnPool2,
 				epochs,
-				oraclePeriod,
+				oracleBlockPeriod,
 				curveShifter,
 				initialRewardShare,
 				multiSigAddress,
@@ -188,7 +188,7 @@ describe('Debt Issuance Pool', () => {
 				expect(await burnPool.epochs()).eq(epochs);
 			});
 			it('Oracle period should be set correctly', async function() {
-				expect(await burnPool.oraclePeriod()).eq(oraclePeriod);
+				expect(await burnPool.oracleBlockPeriod()).eq(oracleBlockPeriod);
 			});
 			it('Curve shifter should be set correctly', async function() {
 				expect(await burnPool.curveShifter()).eq(curveShifter);
@@ -252,11 +252,15 @@ describe('Debt Issuance Pool', () => {
 								.mul(await burnPool.initialRewardShare())
 								.div(parseEther('1'));
 
+							const epoch = await burnPool.epochs();
+							const period = await burnPool.oracleBlockPeriod();
+
 							const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
+							const debasePerEpoch = rewardShare.div(epoch);
 
 							await expect(burnPool.checkStabilizerAndGetReward(-1, 10, 0, parseEther('10'))).to
 								.emit(burnPool, 'LogNewCouponCycle')
-								.withArgs(0, 2, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
+								.withArgs(0, rewardShare, debasePerEpoch, period, epoch, 0, 0, 0, 0, 0, 0, 0);
 						});
 
 						it('User should be able to buy coupons and emit correct transfer event', async function() {
@@ -334,7 +338,7 @@ describe('Debt Issuance Pool', () => {
 								burnPool1,
 								burnPool2,
 								epochs,
-								oraclePeriod,
+								oracleBlockPeriod,
 								curveShifter,
 								initialRewardShare,
 								multiSigAddress,
@@ -377,7 +381,7 @@ describe('Debt Issuance Pool', () => {
 								)
 							).to
 								.emit(burnPoolV2, 'LogRewardsAccrued')
-								.withArgs(expansionPercentageScaled);
+								.withArgs(expansionPercentageScaled, expansionPercentageScaled, value);
 						});
 						it('There should be no reward cycles started', async function() {
 							expect(await burnPoolV2.rewardCyclesLength()).eq(0);
@@ -417,7 +421,7 @@ describe('Debt Issuance Pool', () => {
 								)
 							).to
 								.emit(burnPoolV2, 'LogRewardsAccrued')
-								.withArgs(rewardsAccrued);
+								.withArgs(rewardsAccrued, expansionPercentageScaled, value);
 						});
 						it('When negative rebase happens new coupon cycle should be started with the correct data', async function() {
 							const cycleLen = await burnPoolV2.rewardCyclesLength();
@@ -428,12 +432,14 @@ describe('Debt Issuance Pool', () => {
 								.div(parseEther('1'));
 
 							const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
+							const debasePerEpoch = rewardShare.div(epochs);
+							const period = await burnPoolV2.oracleBlockPeriod();
 
 							await expect(
 								burnPoolV2.checkStabilizerAndGetReward(-1, 10, parseEther('2'), parseEther('10000'))
 							).to
 								.emit(burnPoolV2, 'LogNewCouponCycle')
-								.withArgs(cycleLen, epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
+								.withArgs(cycleLen, rewardShare, debasePerEpoch, period, epochs, 0, 0, 0, 0, 0, 0, 0);
 						});
 						it('There should be a reward cycles started afterwards', async function() {
 							expect(await burnPoolV2.rewardCyclesLength()).eq(1);
@@ -459,13 +465,28 @@ describe('Debt Issuance Pool', () => {
 									.mul(await burnPoolV2.rewardsAccrued())
 									.div(parseEther('1'));
 
+								const period = await burnPoolV2.oracleBlockPeriod();
 								const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
+								const debasePerEpoch = rewardShare.div(epochs);
 
 								await expect(
 									burnPoolV2.checkStabilizerAndGetReward(-1, 10, parseEther('2'), parseEther('10000'))
 								).to
 									.emit(burnPoolV2, 'LogNewCouponCycle')
-									.withArgs(cycleLen, epochs, rewardShare, 0, 0, 0, 0, 0, 0, 0, 0);
+									.withArgs(
+										cycleLen,
+										rewardShare,
+										debasePerEpoch,
+										period,
+										epochs,
+										0,
+										0,
+										0,
+										0,
+										0,
+										0,
+										0
+									);
 							});
 							it('Reward cycles should be set to 2', async function() {
 								expect(await burnPoolV2.rewardCyclesLength()).eq(2);
@@ -509,10 +530,12 @@ describe('Debt Issuance Pool', () => {
 									const rewardCycle = await burnPoolV2.rewardCycles(cycleLen.sub(1));
 
 									const epochCycle = await burnPoolV2.epochs();
-									const debasePerEpoch = rewardCycle[1].div(epochCycle);
+									const debasePerEpoch = rewardCycle[0].div(epochCycle);
 									debaseShareToBeRewarded = await burnPoolV2.bytes16ToUnit256(value, debasePerEpoch);
 
 									const rewardRate = debaseShareToBeRewarded.div(100);
+									const period = await ethers.provider.getBlockNumber();
+									const periodDuration = await burnPoolV2.rewardBlockDuration();
 
 									await expect(
 										burnPoolV2.checkStabilizerAndGetReward(
@@ -523,13 +546,17 @@ describe('Debt Issuance Pool', () => {
 										)
 									).to
 										.emit(burnPoolV2, 'LogStartNewDistributionCycle')
-										.withArgs(debaseShareToBeRewarded, rewardRate);
+										.withArgs(
+											debaseShareToBeRewarded,
+											rewardRate,
+											periodDuration.toNumber() + period + 1
+										);
 								});
 								it('Epoch rewarded should be set to 1', async function() {
 									const cycleLen = await burnPoolV2.rewardCyclesLength();
 									const rewardCycle = await burnPoolV2.rewardCycles(cycleLen.sub(1));
 
-									expect(await rewardCycle[2]).eq(1);
+									expect(await rewardCycle[4]).eq(1);
 								});
 								it('Rewards should be earnable', async function() {
 									let cycle = await burnPoolV2.rewardCyclesLength();
