@@ -82,7 +82,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 index,
         uint256 rewardAmount,
         uint256 debasePerEpoch,
-        uint256 rewardBlockDuration,
+        uint256 rewardBlockPeriod,
         uint256 oracleBlockPeriod,
         uint256 epochsToReward,
         uint256 epochsRewarded,
@@ -138,7 +138,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     // Offset to shift the log normal curve
     uint256 public curveShifter;
     // The  block duration over which rewards are given out
-    uint256 public rewardBlockDuration = 100;
+    uint256 public rewardBlockPeriod = 100;
 
     // The percentage of the total supply to be given out on the first instance
     // when the pool launches and the next rebase is negative
@@ -161,7 +161,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         // The debase to be rewarded as per the epoch
         uint256 debasePerEpoch;
         // THe number of blocks to give out rewards per epoch
-        uint256 rewardBlockDuration;
+        uint256 rewardBlockPeriod;
         // THe number of blocks after which the coupon oracle should update
         uint256 oracleBlockPeriod;
         // Shows the number of epoch(rebases) to distribute rewards for
@@ -281,11 +281,11 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     /**
      * @notice Function to set the reward duration for a single epoch reward period
-     * @param rewardBlockDuration_ New block duration period
+     * @param rewardBlockPeriod_ New block duration period
      */
-    function setBlockDuration(uint256 rewardBlockDuration_) external onlyOwner {
-        rewardBlockDuration = rewardBlockDuration_;
-        emit LogSetBlockDuration(rewardBlockDuration);
+    function setBlockDuration(uint256 rewardBlockPeriod_) external onlyOwner {
+        rewardBlockPeriod = rewardBlockPeriod_;
+        emit LogSetBlockDuration(rewardBlockPeriod);
     }
 
     /**
@@ -425,7 +425,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 RewardCycle(
                     rewardShare,
                     debasePerEpoch,
-                    rewardBlockDuration,
+                    rewardBlockPeriod,
                     oracleBlockPeriod,
                     epochs,
                     0,
@@ -442,7 +442,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 rewardCyclesLength,
                 rewardShare,
                 debasePerEpoch,
-                rewardBlockDuration,
+                rewardBlockPeriod,
                 oracleBlockPeriod,
                 epochs,
                 0,
@@ -769,18 +769,18 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         if (block.number >= instance.periodFinish) {
             instance.rewardRate = poolTotalShare.div(
-                instance.rewardBlockDuration
+                instance.rewardBlockPeriod
             );
         } else {
             uint256 remaining = instance.periodFinish.sub(block.number);
             uint256 leftover = remaining.mul(instance.rewardRate);
             instance.rewardRate = poolTotalShare.add(leftover).div(
-                instance.rewardBlockDuration
+                instance.rewardBlockPeriod
             );
         }
 
         instance.lastUpdateTime = block.number;
-        instance.periodFinish = block.number.add(instance.rewardBlockDuration);
+        instance.periodFinish = block.number.add(instance.rewardBlockPeriod);
 
         emit LogStartNewDistributionCycle(
             poolTotalShare,

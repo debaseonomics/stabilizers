@@ -254,7 +254,7 @@ describe('Debt Issuance Pool', () => {
 
 							const epoch = await burnPool.epochs();
 							const period = await burnPool.oracleBlockPeriod();
-							const rewardPeriod = await burnPool.rewardBlockDuration();
+							const rewardPeriod = await burnPool.rewardBlockPeriod();
 
 							const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
 							const debasePerEpoch = rewardShare.div(epoch);
@@ -449,7 +449,7 @@ describe('Debt Issuance Pool', () => {
 							const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
 							const debasePerEpoch = rewardShare.div(epochs);
 							const period = await burnPoolV2.oracleBlockPeriod();
-							const rewardPeriod = await burnPoolV2.rewardBlockDuration();
+							const rewardPeriod = await burnPoolV2.rewardBlockPeriod();
 
 							await expect(
 								burnPoolV2.checkStabilizerAndGetReward(-1, 10, parseEther('2'), parseEther('10000'))
@@ -496,7 +496,7 @@ describe('Debt Issuance Pool', () => {
 									.div(parseEther('1'));
 
 								const period = await burnPoolV2.oracleBlockPeriod();
-								const rewardPeriod = await burnPoolV2.rewardBlockDuration();
+								const rewardPeriod = await burnPoolV2.rewardBlockPeriod();
 								const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
 								const debasePerEpoch = rewardShare.div(epochs);
 
@@ -567,7 +567,7 @@ describe('Debt Issuance Pool', () => {
 
 									const rewardRate = debaseShareToBeRewarded.div(100);
 									const period = await ethers.provider.getBlockNumber();
-									const periodDuration = await burnPoolV2.rewardBlockDuration();
+									const periodDuration = await burnPoolV2.rewardBlockPeriod();
 
 									await expect(
 										burnPoolV2.checkStabilizerAndGetReward(
