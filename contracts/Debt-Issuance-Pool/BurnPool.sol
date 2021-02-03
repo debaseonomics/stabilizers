@@ -82,6 +82,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 index,
         uint256 rewardAmount,
         uint256 debasePerEpoch,
+        uint256 rewardBlockDuration,
         uint256 oracleBlockPeriod,
         uint256 epochsToReward,
         uint256 epochsRewarded,
@@ -159,6 +160,8 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 rewardShare;
         // The debase to be rewarded as per the epoch
         uint256 debasePerEpoch;
+        // THe number of blocks to give out rewards per epoch
+        uint256 rewardBlockDuration;
         // THe number of blocks after which the coupon oracle should update
         uint256 oracleBlockPeriod;
         // Shows the number of epoch(rebases) to distribute rewards for
@@ -422,6 +425,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 RewardCycle(
                     rewardShare,
                     debasePerEpoch,
+                    rewardBlockDuration,
                     oracleBlockPeriod,
                     epochs,
                     0,
@@ -438,6 +442,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 rewardCyclesLength,
                 rewardShare,
                 debasePerEpoch,
+                rewardBlockDuration,
                 oracleBlockPeriod,
                 epochs,
                 0,
@@ -763,17 +768,19 @@ contract BurnPool is Ownable, Curve, Initializable {
         );
 
         if (block.number >= instance.periodFinish) {
-            instance.rewardRate = poolTotalShare.div(rewardBlockDuration);
+            instance.rewardRate = poolTotalShare.div(
+                instance.rewardBlockDuration
+            );
         } else {
             uint256 remaining = instance.periodFinish.sub(block.number);
             uint256 leftover = remaining.mul(instance.rewardRate);
             instance.rewardRate = poolTotalShare.add(leftover).div(
-                rewardBlockDuration
+                instance.rewardBlockDuration
             );
         }
 
         instance.lastUpdateTime = block.number;
-        instance.periodFinish = block.number.add(rewardBlockDuration);
+        instance.periodFinish = block.number.add(instance.rewardBlockDuration);
 
         emit LogStartNewDistributionCycle(
             poolTotalShare,
