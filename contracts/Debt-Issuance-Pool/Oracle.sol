@@ -93,8 +93,6 @@ contract Oracle is ExampleOracleSimple {
     uint256 constant SCALE = 10**18;
     address constant uniFactory = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
 
-    uint256 public lastPrice;
-
     constructor(
         address debase_,
         address dai_,
@@ -105,12 +103,17 @@ contract Oracle is ExampleOracleSimple {
         pool = pool_;
     }
 
+    function updateData() external {
+        require(msg.sender == pool, "Only pool can update the oracle");
+        update();
+    }
+
     /**
      * @notice Get a price data sample from the oralce. Can only be called by the debase policy.
      * @return The price and if the price if valid
      */
     function getData() external returns (uint256, bool) {
-        require(msg.sender == pool, "Only pool can call the oracle");
+        require(msg.sender == pool, "Only pool can get the oracle price");
         update();
         uint256 price = consult(debase, SCALE); // will return 1 BASED in Dai
 
@@ -118,7 +121,6 @@ contract Oracle is ExampleOracleSimple {
             return (0, false);
         }
 
-        lastPrice = price;
         return (price, true);
     }
 }

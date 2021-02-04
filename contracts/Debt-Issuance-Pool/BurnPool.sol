@@ -24,6 +24,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "./lib/SafeMathInt.sol";
+import "hardhat/console.sol";
 import "./Curve.sol";
 
 interface IDebasePolicy {
@@ -37,7 +38,7 @@ interface IDebasePolicy {
 interface IOracle {
     function getData() external returns (uint256, bool);
 
-    function lastPrice() external view returns (uint256);
+    function updateData() external;
 }
 
 contract BurnPool is Ownable, Curve, Initializable {
@@ -47,12 +48,14 @@ contract BurnPool is Ownable, Curve, Initializable {
     using Address for address;
 
     event LogStartNewDistributionCycle(
+        uint256 exchangeRate_,
         uint256 poolShareAdded_,
         uint256 rewardRate_,
         uint256 periodFinish_,
-        bytes16 curvrValue_
+        bytes16 curveValue_
     );
 
+    event LogCouponsBought(address buyer_, uint256 amount_);
     event LogSetOracle(IOracle oracle_);
     event LogSetRewardBlockPeriod(uint256 rewardBlockPeriod_);
     event LogSetMultiSigRewardShare(uint256 multiSigRewardShare_);
@@ -70,29 +73,25 @@ contract BurnPool is Ownable, Curve, Initializable {
     );
     event LogEmergencyWithdrawa(uint256 withdrawAmount_);
     event LogRewardsAccrued(
+        uint256 exchangeRate_,
         uint256 rewardsAccrued_,
         uint256 expansionPercentageScaled_,
-        bytes16 value
+        bytes16 value_
     );
     event LogRewardClaimed(
-        address user,
-        uint256 cycleIndex,
+        address user_,
+        uint256 cycleIndex_,
         uint256 rewardClaimed_
     );
     event LogNewCouponCycle(
-        uint256 index,
-        uint256 rewardAmount,
-        uint256 debasePerEpoch,
-        uint256 rewardBlockPeriod,
-        uint256 oracleBlockPeriod,
-        uint256 epochsToReward,
-        uint256 epochsRewarded,
-        uint256 couponsIssued,
-        uint256 rewardRate,
-        uint256 periodFinish,
-        uint256 lastUpdateTime,
-        uint256 rewardPerTokenStored,
-        uint256 rewardDistributed
+        uint256 index_,
+        uint256 rewardAmount_,
+        uint256 debasePerEpoch_,
+        uint256 rewardBlockPeriod_,
+        uint256 oracleBlockPeriod_,
+        uint256 oracleLastPrice_,
+        uint256 oracleNextUpdate_,
+        uint256 epochsToReward_
     );
 
     event LogOraclePriceAndPeriod(uint256 price_, uint256 period_);
@@ -130,8 +129,6 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     // The period after which the oracle price updates for coupon buying
     uint256 public oracleBlockPeriod;
-    // The block number when the oracle with update next
-    uint256 public oracleNextUpdate;
 
     // Tracking supply expansion in relation to total supply.
     // To be given out as rewards after the next contraction
@@ -161,10 +158,14 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 rewardShare;
         // The debase to be rewarded as per the epoch
         uint256 debasePerEpoch;
-        // THe number of blocks to give out rewards per epoch
+        // The number of blocks to give out rewards per epoch
         uint256 rewardBlockPeriod;
-        // THe number of blocks after which the coupon oracle should update
+        // The number of blocks after which the coupon oracle should update
         uint256 oracleBlockPeriod;
+        // Last Price of the oracle used to open or close coupon buying
+        uint256 oracleLastPrice;
+        // The block number when the oracle with update next
+        uint256 oracleNextUpdate;
         // Shows the number of epoch(rebases) to distribute rewards for
         uint256 epochsToReward;
         // Shows the number of epochs(rebases) rewarded
@@ -399,7 +400,7 @@ contract BurnPool is Ownable, Curve, Initializable {
      * @notice Function that is called when the next rebase is negative. If the last rebase was not negative then a
      * new coupon cycle starts. If the last rebase was also negative when nothing happens.
      */
-    function startNewCouponCycle() internal {
+    function startNewCouponCycle(uint256 exchangeRate_) internal {
         if (lastRebase != Rebase.NEGATIVE) {
             lastRebase = Rebase.NEGATIVE;
 
@@ -431,6 +432,8 @@ contract BurnPool is Ownable, Curve, Initializable {
                     debasePerEpoch,
                     rewardBlockPeriod,
                     oracleBlockPeriod,
+                    exchangeRate_,
+                    block.number.add(oracleBlockPeriod),
                     epochs,
                     0,
                     0,
@@ -448,42 +451,32 @@ contract BurnPool is Ownable, Curve, Initializable {
                 debasePerEpoch,
                 rewardBlockPeriod,
                 oracleBlockPeriod,
-                epochs,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0
+                exchangeRate_,
+                block.number.add(oracleBlockPeriod),
+                epochs
             );
 
             rewardCyclesLength = rewardCyclesLength.add(1);
             positiveToNeutralRebaseRewardsDisabled = false;
             rewardsAccrued = 0;
 
-            uint256 price;
-            bool valid;
-
-            // Get current price for the debase dai pair
-            (price, valid) = oracle.getData();
-            require(valid, "Price is invalid");
-
-            oracleNextUpdate = block.number.add(oracleBlockPeriod);
-            emit LogOraclePriceAndPeriod(price, oracleNextUpdate);
+            // Update oracle data to current timestamp
+            oracle.updateData();
         }
     }
 
     /**
      * @notice Function that issues rewards when a positive rebase is about to happen.
+     * @param exchangeRate_ The current exchange rate at rebase
      * @param debasePolicyBalance The current balance of the fund contract
      * @param curveValue Value of the log normal curve
      * @return Returns amount of rewards to be claimed from a positive rebase
      */
-    function issueRewards(uint256 debasePolicyBalance, bytes16 curveValue)
-        internal
-        returns (uint256)
-    {
+    function issueRewards(
+        uint256 exchangeRate_,
+        uint256 debasePolicyBalance,
+        bytes16 curveValue
+    ) internal returns (uint256) {
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
         instance.epochsRewarded = instance.epochsRewarded.add(1);
@@ -511,6 +504,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         if (totalDebaseToClaim <= debasePolicyBalance) {
             // Start new reward distribution cycle in relation to just debase claim amount
             startNewDistributionCycle(
+                exchangeRate_,
                 totalDebaseToClaim,
                 debaseShareToBeRewarded,
                 curveValue
@@ -557,7 +551,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         );
 
         if (supplyDelta_ < 0) {
-            startNewCouponCycle();
+            startNewCouponCycle(exchangeRate_);
         } else if (supplyDelta_ == 0) {
             if (lastRebase == Rebase.POSITIVE) {
                 positiveToNeutralRebaseRewardsDisabled = true;
@@ -607,6 +601,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             }
 
             emit LogRewardsAccrued(
+                exchangeRate_,
                 rewardsAccrued,
                 expansionPercentageScaled,
                 value
@@ -623,7 +618,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 rewardCycles[rewardCyclesLength.sub(1)].couponsIssued != 0 &&
                 rewardCycles[rewardCyclesLength.sub(1)].epochsRewarded < epochs
             ) {
-                return issueRewards(debasePolicyBalance, value);
+                return issueRewards(exchangeRate_, debasePolicyBalance, value);
             }
         }
 
@@ -640,21 +635,24 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
-        uint256 price;
-        if (block.number > oracleNextUpdate) {
+        if (block.number > instance.oracleNextUpdate) {
             bool valid;
 
-            (price, valid) = oracle.getData();
+            (instance.oracleLastPrice, valid) = oracle.getData();
             require(valid, "Price is invalid");
 
-            oracleNextUpdate = block.number.add(instance.oracleBlockPeriod);
+            instance.oracleNextUpdate = block.number.add(
+                instance.oracleBlockPeriod
+            );
 
-            emit LogOraclePriceAndPeriod(price, oracleNextUpdate);
-        } else {
-            price = oracle.lastPrice();
+            emit LogOraclePriceAndPeriod(
+                instance.oracleLastPrice,
+                instance.oracleNextUpdate
+            );
         }
+        console.log("Price",instance.oracleLastPrice);
         require(
-            price < lowerPriceThreshold,
+            instance.oracleLastPrice < lowerPriceThreshold,
             "Can only buy coupons if price is lower than lower threshold"
         );
     }
@@ -686,6 +684,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         instance.couponsIssued = instance.couponsIssued.add(debaseSent);
 
+        emit LogCouponsBought(msg.sender, debaseSent);
         debase.safeTransferFrom(msg.sender, address(policy), debaseSent);
     }
 
@@ -759,6 +758,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     function startNewDistributionCycle(
+        uint256 exchangeRate_,
         uint256 totalDebaseToClaim,
         uint256 poolTotalShare,
         bytes16 curveValue
@@ -789,6 +789,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         instance.periodFinish = block.number.add(instance.rewardBlockPeriod);
 
         emit LogStartNewDistributionCycle(
+            exchangeRate_,
             poolTotalShare,
             instance.rewardRate,
             instance.periodFinish,
