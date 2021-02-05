@@ -24,7 +24,6 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "./lib/SafeMathInt.sol";
-import "hardhat/console.sol";
 import "./Curve.sol";
 
 interface IDebasePolicy {
@@ -55,6 +54,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         bytes16 curveValue_
     );
 
+    event LogNeutralRebase(bool rewardDistributionDisabled_);
     event LogCouponsBought(address buyer_, uint256 amount_);
     event LogSetOracle(IOracle oracle_);
     event LogSetRewardBlockPeriod(uint256 rewardBlockPeriod_);
@@ -464,6 +464,14 @@ contract BurnPool is Ownable, Curve, Initializable {
                 rewardCycles[rewardCyclesLength.sub(1)];
 
             instance.oracleLastPrice = exchangeRate_;
+            instance.oracleNextUpdate = block.number.add(
+                instance.oracleBlockPeriod
+            );
+
+            emit LogOraclePriceAndPeriod(
+                instance.oracleLastPrice,
+                instance.oracleNextUpdate
+            );
         }
         // Update oracle data to current timestamp
         oracle.updateData();
@@ -561,6 +569,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 positiveToNeutralRebaseRewardsDisabled = true;
             }
             lastRebase = Rebase.NEUTRAL;
+            emit LogNeutralRebase(positiveToNeutralRebaseRewardsDisabled);
         } else {
             lastRebase = Rebase.POSITIVE;
 
@@ -654,7 +663,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 instance.oracleNextUpdate
             );
         }
-        console.log("Price", instance.oracleLastPrice);
+
         require(
             instance.oracleLastPrice < lowerPriceThreshold,
             "Can only buy coupons if price is lower than lower threshold"
