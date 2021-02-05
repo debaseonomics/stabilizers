@@ -459,10 +459,9 @@ contract BurnPool is Ownable, Curve, Initializable {
             rewardCyclesLength = rewardCyclesLength.add(1);
             positiveToNeutralRebaseRewardsDisabled = false;
             rewardsAccrued = 0;
-
-            // Update oracle data to current timestamp
-            oracle.updateData();
         }
+        // Update oracle data to current timestamp
+        oracle.updateData();
     }
 
     /**
@@ -650,7 +649,7 @@ contract BurnPool is Ownable, Curve, Initializable {
                 instance.oracleNextUpdate
             );
         }
-        console.log("Price",instance.oracleLastPrice);
+        console.log("Price", instance.oracleLastPrice);
         require(
             instance.oracleLastPrice < lowerPriceThreshold,
             "Can only buy coupons if price is lower than lower threshold"
