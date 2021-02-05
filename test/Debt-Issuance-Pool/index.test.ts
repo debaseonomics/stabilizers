@@ -259,6 +259,8 @@ describe('Debt Issuance Pool', () => {
 							const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
 							const debasePerEpoch = rewardShare.div(epoch);
 
+							const block = await ethers.provider.getBlockNumber();
+
 							await expect(burnPool.checkStabilizerAndGetReward(-1, 10, 0, parseEther('10'))).to
 								.emit(burnPool, 'LogNewCouponCycle')
 								.withArgs(
@@ -267,14 +269,9 @@ describe('Debt Issuance Pool', () => {
 									debasePerEpoch,
 									rewardPeriod,
 									period,
-									epoch,
 									0,
-									0,
-									0,
-									0,
-									0,
-									0,
-									0
+									block + period.toNumber() + 1,
+									epoch
 								);
 						});
 
@@ -325,8 +322,9 @@ describe('Debt Issuance Pool', () => {
 								1621000900
 							);
 							await debaseUser.approve(burnPool.address, parseEther('10'));
-							await expect(burnPoolUser.buyCoupons(parseEther('1'))).to.not.be.revertedWith(
-								'Can only buy coupons if price is lower than lower threshold'
+							await expect(burnPoolUser.buyCoupons(parseEther('1'))).to.emit(
+								burnPool,
+								'LogCouponsBought'
 							);
 						});
 					});
@@ -396,7 +394,7 @@ describe('Debt Issuance Pool', () => {
 								)
 							).to
 								.emit(burnPoolV2, 'LogRewardsAccrued')
-								.withArgs(expansionPercentageScaled, expansionPercentageScaled, value);
+								.withArgs(parseEther('2'), expansionPercentageScaled, expansionPercentageScaled, value);
 						});
 						it('There should be no reward cycles started', async function() {
 							expect(await burnPoolV2.rewardCyclesLength()).eq(0);
@@ -436,7 +434,7 @@ describe('Debt Issuance Pool', () => {
 								)
 							).to
 								.emit(burnPoolV2, 'LogRewardsAccrued')
-								.withArgs(rewardsAccrued, expansionPercentageScaled, value);
+								.withArgs(parseEther('2'), rewardsAccrued, expansionPercentageScaled, value);
 						});
 						it('When negative rebase happens new coupon cycle should be started with the correct data', async function() {
 							const cycleLen = await burnPoolV2.rewardCyclesLength();
@@ -451,6 +449,8 @@ describe('Debt Issuance Pool', () => {
 							const period = await burnPoolV2.oracleBlockPeriod();
 							const rewardPeriod = await burnPoolV2.rewardBlockPeriod();
 
+							const block = await ethers.provider.getBlockNumber();
+
 							await expect(
 								burnPoolV2.checkStabilizerAndGetReward(-1, 10, parseEther('2'), parseEther('10000'))
 							).to
@@ -461,14 +461,9 @@ describe('Debt Issuance Pool', () => {
 									debasePerEpoch,
 									rewardPeriod,
 									period,
-									epochs,
-									0,
-									0,
-									0,
-									0,
-									0,
-									0,
-									0
+									parseEther('2'),
+									block + period.toNumber() + 1,
+									epochs
 								);
 						});
 						it('There should be a reward cycles started afterwards', async function() {
@@ -500,6 +495,8 @@ describe('Debt Issuance Pool', () => {
 								const rewardShare = rewardAmount.mul(parseEther('1')).div(await debase.totalSupply());
 								const debasePerEpoch = rewardShare.div(epochs);
 
+								const block = await ethers.provider.getBlockNumber();
+
 								await expect(
 									burnPoolV2.checkStabilizerAndGetReward(-1, 10, parseEther('2'), parseEther('10000'))
 								).to
@@ -510,14 +507,9 @@ describe('Debt Issuance Pool', () => {
 										debasePerEpoch,
 										rewardPeriod,
 										period,
-										epochs,
-										0,
-										0,
-										0,
-										0,
-										0,
-										0,
-										0
+										parseEther('2'),
+										block + period.toNumber() + 1,
+										epochs
 									);
 							});
 							it('Reward cycles should be set to 2', async function() {
@@ -543,7 +535,7 @@ describe('Debt Issuance Pool', () => {
 									await burnPoolV2.checkStabilizerAndGetReward(
 										-1,
 										10,
-										parseEther('2'),
+										parseUnits('949', 15),
 										parseEther('10000')
 									);
 									await debaseUser.approve(burnPoolV2.address, parseEther('10'));
@@ -579,6 +571,7 @@ describe('Debt Issuance Pool', () => {
 									).to
 										.emit(burnPoolV2, 'LogStartNewDistributionCycle')
 										.withArgs(
+											parseEther('3'),
 											debaseShareToBeRewarded,
 											rewardRate,
 											periodDuration.toNumber() + period + 1,
@@ -589,7 +582,7 @@ describe('Debt Issuance Pool', () => {
 									const cycleLen = await burnPoolV2.rewardCyclesLength();
 									const rewardCycle = await burnPoolV2.rewardCycles(cycleLen.sub(1));
 
-									expect(await rewardCycle[5]).eq(1);
+									expect(await rewardCycle[7]).eq(1);
 								});
 								it('Rewards should be earnable', async function() {
 									let cycle = await burnPoolV2.rewardCyclesLength();
