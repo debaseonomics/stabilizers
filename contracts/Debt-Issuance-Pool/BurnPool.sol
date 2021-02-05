@@ -459,6 +459,11 @@ contract BurnPool is Ownable, Curve, Initializable {
             rewardCyclesLength = rewardCyclesLength.add(1);
             positiveToNeutralRebaseRewardsDisabled = false;
             rewardsAccrued = 0;
+        } else {
+            RewardCycle storage instance =
+                rewardCycles[rewardCyclesLength.sub(1)];
+
+            instance.oracleLastPrice = exchangeRate_;
         }
         // Update oracle data to current timestamp
         oracle.updateData();

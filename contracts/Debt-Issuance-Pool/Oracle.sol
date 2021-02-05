@@ -48,6 +48,32 @@ contract ExampleOracleSimple {
         );
     }
 
+    function currentAveragePrice() external view returns (uint256, uint256) {
+        (
+            uint256 price0Cumulative,
+            uint256 price1Cumulative,
+            uint32 blockTimestamp
+        ) = UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
+
+        uint32 timeElapsed = blockTimestamp - blockTimestampLast; // overflow is desired
+
+        // overflow is desired, casting never truncates
+        // cumulative price is in (uq112x112 price * seconds) units so we simply wrap it after division by time elapsed
+        FixedPoint.uq112x112 memory token0avg =
+            FixedPoint.uq112x112(
+                uint224((price0Cumulative - price0CumulativeLast) / timeElapsed)
+            );
+        FixedPoint.uq112x112 memory token1avg =
+            FixedPoint.uq112x112(
+                uint224((price1Cumulative - price1CumulativeLast) / timeElapsed)
+            );
+
+        return (
+            token0avg.mul(10**18).decode144(),
+            token1avg.mul(10**18).decode144()
+        );
+    }
+
     function update() internal {
         (
             uint256 price0Cumulative,
