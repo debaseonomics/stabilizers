@@ -73,6 +73,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     );
     event LogEmergencyWithdrawa(uint256 withdrawAmount_);
     event LogRewardsAccrued(
+        uint256 index,
         uint256 exchangeRate_,
         uint256 rewardsAccrued_,
         uint256 expansionPercentageScaled_,
@@ -415,7 +416,9 @@ contract BurnPool is Ownable, Curve, Initializable {
                     10**18
                 );
             } else {
-                rewardAmount = circBalance().mul(rewardsAccrued).div(10**18);
+                rewardAmount = circBalance()
+                    .mul(rewardsAccrued.sub(10**18))
+                    .div(10**18);
             }
 
             // Scale reward amount in relation debase total supply
@@ -601,7 +604,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
             // Expansion percentage is scaled in relation to the value
             uint256 expansionPercentageScaled =
-                bytes16ToUnit256(value, expansionPercentage);
+                bytes16ToUnit256(value, expansionPercentage).add(10**18);
 
             // On our first positive rebase rewardsAccrued rebase will be the expansion percentage
             if (rewardsAccrued == 0) {
@@ -614,6 +617,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             }
 
             emit LogRewardsAccrued(
+                rewardCyclesLength,
                 exchangeRate_,
                 rewardsAccrued,
                 expansionPercentageScaled,
