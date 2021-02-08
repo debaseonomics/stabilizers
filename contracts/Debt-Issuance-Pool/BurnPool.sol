@@ -177,7 +177,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 rewardRate;
         // The period over to distribute rewards for a single epoch/cycle
         uint256 periodFinish;
-        uint256 lastUpdateTime;
+        uint256 lastUpdateBlock;
         uint256 rewardPerTokenStored;
         // The rewards distributed in %s of the total supply in reward cycle
         uint256 rewardDistributed;
@@ -201,10 +201,10 @@ contract BurnPool is Ownable, Curve, Initializable {
         RewardCycle storage instance = rewardCycles[index];
 
         instance.rewardPerTokenStored = rewardPerToken(index);
-        instance.lastUpdateTime = lastRewardApplicable(index);
+        instance.lastUpdateBlock = lastRewardApplicable(index);
         if (account != address(0)) {
-            instance.rewards[account] = earned(index);
-            instance.userRewardPerTokenPaid[account] = rewardCycles[index]
+            instance.rewards[account] = earned(index, account);
+            instance.userRewardPerTokenPaid[account] = instance
                 .rewardPerTokenStored;
         }
         _;
@@ -587,8 +587,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 expansionPercentage =
                 newSupply.mul(10**18).div(currentSupply).sub(10**18);
 
-            uint256 targetRate =
-                policy.priceTargetRate().add(policy.upperDeviationThreshold());
+            uint256 targetRate = policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
             // Get the difference between the current price and the target price (1.05$ Dai)
             uint256 offset = exchangeRate_.add(curveShifter).sub(targetRate);
@@ -647,8 +646,7 @@ contract BurnPool is Ownable, Curve, Initializable {
      * then another oracle update is called.
      */
     function checkPriceOrUpdate() internal {
-        uint256 lowerPriceThreshold =
-            policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
+        uint256 lowerPriceThreshold = policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
 
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
@@ -716,7 +714,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         view
         returns (uint256)
     {
-        return Math.min(block.timestamp, rewardCycles[index].periodFinish);
+        return Math.min(block.number, rewardCycles[index].periodFinish);
     }
 
     function rewardPerToken(uint256 index) internal view returns (uint256) {
@@ -729,14 +727,18 @@ contract BurnPool is Ownable, Curve, Initializable {
         return
             instance.rewardPerTokenStored.add(
                 lastRewardApplicable(index)
-                    .sub(instance.lastUpdateTime)
+                    .sub(instance.lastUpdateBlock)
                     .mul(instance.rewardRate)
                     .mul(10**18)
                     .div(instance.couponsIssued)
             );
     }
 
-    function earned(uint256 index) public view returns (uint256) {
+    function earned(uint256 index, address account)
+        public
+        view
+        returns (uint256)
+    {
         require(rewardCyclesLength != 0, "Cycle array is empty");
         require(
             index <= rewardCyclesLength.sub(1),
@@ -745,18 +747,18 @@ contract BurnPool is Ownable, Curve, Initializable {
         RewardCycle storage instance = rewardCycles[index];
 
         return
-            instance.userCouponBalances[msg.sender]
+            instance.userCouponBalances[account]
                 .mul(
                 rewardPerToken(index).sub(
-                    instance.userRewardPerTokenPaid[msg.sender]
+                    instance.userRewardPerTokenPaid[account]
                 )
             )
                 .div(10**18)
-                .add(instance.rewards[msg.sender]);
+                .add(instance.rewards[account]);
     }
 
     function getReward(uint256 index) public updateReward(msg.sender, index) {
-        uint256 reward = earned(index);
+        uint256 reward = earned(index, msg.sender);
 
         if (reward > 0) {
             RewardCycle storage instance = rewardCycles[index];
@@ -802,7 +804,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             );
         }
 
-        instance.lastUpdateTime = block.number;
+        instance.lastUpdateBlock = block.number;
         instance.periodFinish = block.number.add(instance.rewardBlockPeriod);
 
         emit LogStartNewDistributionCycle(
