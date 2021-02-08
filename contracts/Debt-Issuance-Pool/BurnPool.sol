@@ -117,7 +117,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     // Deviation for log normal distribution
     bytes16 public deviation;
     // Multiplied into log normal curve to raise or lower the peak. Initially set to 1 in bytes16
-    bytes16 public peakScaler = 0x3fff0000000000000000000000000000;
+    bytes16 public peakScaler = 0x3fff565013f27f16fc74748b3f33c2db;
     // Result of 1/(Deviation*Sqrt(2*pi)) for optimized log normal calculation
     bytes16 public oneDivDeviationSqrtTwoPi;
     // Result of 2*(Deviation)^2 for optimized log normal calculation
@@ -137,7 +137,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     // Offset to shift the log normal curve
     uint256 public curveShifter;
     // The  block duration over which rewards are given out
-    uint256 public rewardBlockPeriod = 100;
+    uint256 public rewardBlockPeriod = 6400;
 
     // The percentage of the total supply to be given out on the first instance
     // when the pool launches and the next rebase is negative
@@ -587,7 +587,8 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 expansionPercentage =
                 newSupply.mul(10**18).div(currentSupply).sub(10**18);
 
-            uint256 targetRate = policy.priceTargetRate().add(policy.upperDeviationThreshold());
+            uint256 targetRate =
+                policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
             // Get the difference between the current price and the target price (1.05$ Dai)
             uint256 offset = exchangeRate_.add(curveShifter).sub(targetRate);
@@ -646,7 +647,8 @@ contract BurnPool is Ownable, Curve, Initializable {
      * then another oracle update is called.
      */
     function checkPriceOrUpdate() internal {
-        uint256 lowerPriceThreshold = policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
+        uint256 lowerPriceThreshold =
+            policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
 
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
