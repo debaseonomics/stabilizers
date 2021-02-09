@@ -98,6 +98,13 @@ contract BurnPool is Ownable, Curve, Initializable {
     event LogSetMinimumRewardAccruedCap(uint256 minimumRewardAccruedCap_);
     event LogSetMaximumRewardAccruedCap(uint256 maximumRewardAccruedCap_);
 
+    event LogSetEnableMinimumRewardAccruedCap(
+        bool enableMinimumRewardAccruedCap_
+    );
+    event LogSetEnableMaximumRewardAccruedCap(
+        bool enableMaximumRewardAccruedCap_
+    );
+
     event LogOraclePriceAndPeriod(uint256 price_, uint256 period_);
     uint256 internal constant MAX_SUPPLY = ~uint128(0); // (2^128) - 1
 
@@ -145,6 +152,9 @@ contract BurnPool is Ownable, Curve, Initializable {
     // The percentage of the total supply to be given out on the first instance
     // when the pool launches and the next rebase is negative
     uint256 public initialRewardShare;
+    //Flags to enable disable cap checks
+    bool public enablemMaximumRewardAccruedCap;
+    bool public enableMinimumRewardAccruedCap;
     // Minimum reward to be given out on the condition that expansion is too low
     uint256 public minimumRewardAccruedCap;
     // Maximum reward to be given out on the condition that expansion is too high
@@ -278,6 +288,28 @@ contract BurnPool is Ownable, Curve, Initializable {
     {
         minimumRewardAccruedCap = minimumRewardAccruedCap_;
         emit LogSetMinimumRewardAccruedCap(minimumRewardAccruedCap);
+    }
+
+    /**
+     * @notice Function to set the initial reward if the pools first rebase is negative
+     * @param enableMinimumRewardAccruedCap_ New initial reward share in %s
+     */
+    function setEnableMinimumRewardAccruedCap(
+        uint256 enableMinimumRewardAccruedCap_
+    ) external onlyOwner {
+        enableMinimumRewardAccruedCap = enableMinimumRewardAccruedCap;
+        emit LogSetMinimumRewardAccruedCap(enableMinimumRewardAccruedCap);
+    }
+
+    /**
+     * @notice Function to set the initial reward if the pools first rebase is negative
+     * @param enableMaximumRewardAccruedCap New initial reward share in %s
+     */
+    function setEnableMaximumRewardAccruedCap(
+        uint256 enableMaximumRewardAccruedCap_
+    ) external onlyOwner {
+        enableMaximumRewardAccruedCap = enableMaximumRewardAccruedCap_;
+        emit LogSetMaximumRewardAccruedCap(enableMaximumRewardAccruedCap);
     }
 
     /**
@@ -446,11 +478,17 @@ contract BurnPool is Ownable, Curve, Initializable {
                 rewardAmount = circBalance().mul(initialRewardShare).div(
                     10**18
                 );
-            } else if (rewardsAccrued < minimumRewardAccruedCap) {
+            } else if (
+                enableMinimumRewardAccruedCap &&
+                rewardsAccrued < minimumRewardAccruedCap
+            ) {
                 rewardAmount = circBalance().mul(minimumRewardAccruedCap).div(
                     10**18
                 );
-            } else if (rewardsAccrued > maximumRewardAccruedCap) {
+            } else if (
+                enableMaximumRewardAccruedCap &&
+                rewardsAccrued > maximumRewardAccruedCap
+            ) {
                 rewardAmount = circBalance().mul(maximumRewardAccruedCap).div(
                     10**18
                 );
@@ -799,6 +837,10 @@ contract BurnPool is Ownable, Curve, Initializable {
     }
 
     function getReward(uint256 index) public updateReward(msg.sender, index) {
+        require(
+            lastRebase == Rebase.POSITIVE,
+            "Can only claim rewards when last rebase was positive"
+        );
         uint256 reward = earned(index, msg.sender);
 
         if (reward > 0) {
