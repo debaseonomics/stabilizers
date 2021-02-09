@@ -157,7 +157,7 @@ contract BurnPool is Ownable, Curve, Initializable {
     // when the pool launches and the next rebase is negative
     uint256 public initialRewardShare;
     //Flags to enable disable cap checks
-    bool public enablemMaximumRewardAccruedCap;
+    bool public enableMaximumRewardAccruedCap;
     bool public enableMinimumRewardAccruedCap;
     // Minimum reward to be given out on the condition that expansion is too low
     uint256 public minimumRewardAccruedCap;
@@ -296,28 +296,6 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     /**
      * @notice Function to set the initial reward if the pools first rebase is negative
-     * @param enableMinimumRewardAccruedCap_ New initial reward share in %s
-     */
-    function setEnableMinimumRewardAccruedCap(
-        uint256 enableMinimumRewardAccruedCap_
-    ) external onlyOwner {
-        enableMinimumRewardAccruedCap = enableMinimumRewardAccruedCap;
-        emit LogSetMinimumRewardAccruedCap(enableMinimumRewardAccruedCap);
-    }
-
-    /**
-     * @notice Function to set the initial reward if the pools first rebase is negative
-     * @param enableMaximumRewardAccruedCap New initial reward share in %s
-     */
-    function setEnableMaximumRewardAccruedCap(
-        uint256 enableMaximumRewardAccruedCap_
-    ) external onlyOwner {
-        enableMaximumRewardAccruedCap = enableMaximumRewardAccruedCap_;
-        emit LogSetMaximumRewardAccruedCap(enableMaximumRewardAccruedCap);
-    }
-
-    /**
-     * @notice Function to set the initial reward if the pools first rebase is negative
      * @param maximumRewardAccruedCap_ New initial reward share in %s
      */
     function setMaximumRewardAccruedCap(uint256 maximumRewardAccruedCap_)
@@ -326,6 +304,28 @@ contract BurnPool is Ownable, Curve, Initializable {
     {
         maximumRewardAccruedCap = maximumRewardAccruedCap_;
         emit LogSetMaximumRewardAccruedCap(maximumRewardAccruedCap_);
+    }
+
+    /**
+     * @notice Function to set the initial reward if the pools first rebase is negative
+     * @param enableMinimumRewardAccruedCap_ New initial reward share in %s
+     */
+    function setEnableMinimumRewardAccruedCap(
+        bool enableMinimumRewardAccruedCap_
+    ) external onlyOwner {
+        enableMinimumRewardAccruedCap = enableMinimumRewardAccruedCap;
+        emit LogSetEnableMinimumRewardAccruedCap(enableMinimumRewardAccruedCap);
+    }
+
+    /**
+     * @notice Function to set the initial reward if the pools first rebase is negative
+     * @param enableMaximumRewardAccruedCap_ New initial reward share in %s
+     */
+    function setEnableMaximumRewardAccruedCap(
+        bool enableMaximumRewardAccruedCap_
+    ) external onlyOwner {
+        enableMaximumRewardAccruedCap = enableMaximumRewardAccruedCap_;
+        emit LogSetEnableMaximumRewardAccruedCap(enableMaximumRewardAccruedCap);
     }
 
     /**
