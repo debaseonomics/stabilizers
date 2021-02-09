@@ -55,7 +55,11 @@ contract BurnPool is Ownable, Curve, Initializable {
     );
 
     event LogNeutralRebase(bool rewardDistributionDisabled_);
-    event LogCouponsBought(address buyer_, uint256 amount_);
+    event LogCouponsBought(
+        address buyer_,
+        uint256 amount_,
+        uint256 couponIssued_
+    );
     event LogSetOracle(IOracle oracle_);
     event LogSetRewardBlockPeriod(uint256 rewardBlockPeriod_);
     event LogSetMultiSigRewardShare(uint256 multiSigRewardShare_);
@@ -778,7 +782,7 @@ contract BurnPool is Ownable, Curve, Initializable {
 
         instance.couponsIssued = instance.couponsIssued.add(debaseSent);
 
-        emit LogCouponsBought(msg.sender, debaseSent);
+        emit LogCouponsBought(msg.sender, debaseSent, instance.couponsIssued);
         debase.safeTransferFrom(msg.sender, address(policy), debaseSent);
     }
 
