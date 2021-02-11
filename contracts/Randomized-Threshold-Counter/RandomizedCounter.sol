@@ -25,12 +25,6 @@ import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-interface IRandomNumberConsumer {
-    function getRandomNumber(uint256 userProvidedSeed) external;
-
-    function fee() external view returns (uint256);
-}
-
 contract LPTokenWrapper {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
@@ -84,9 +78,6 @@ contract RandomizedCounter is
         uint256 noramlDistributionMean_,
         uint256 normalDistributionDeviation_,
         uint256[100] normalDistribution_
-    );
-    event LogSetRandomNumberConsumer(
-        IRandomNumberConsumer randomNumberConsumer_
     );
     event LogSetMultiSigAddress(address multiSigAddress_);
     event LogSetMultiSigRewardPercentage(uint256 multiSigRewardPercentage_);
@@ -146,18 +137,11 @@ contract RandomizedCounter is
     // Should revoke reward
     bool public revokeReward;
 
-    uint256 public lastRewardPercentage;
-
     // The count of s hitting their target
     uint256 public count;
 
     // Flag to enable or disable   sequence checker
     bool public countInSequence;
-
-    bool public newBufferFunds;
-
-    // Address for the random number contract (chainlink vrf)
-    IRandomNumberConsumer public randomNumberConsumer;
 
     //Address of the link token
     IERC20 public link;
@@ -176,7 +160,6 @@ contract RandomizedCounter is
 
     address public multiSigAddress;
     uint256 public multiSigRewardPercentage;
-    uint256 public multiSigRewardToClaimShare;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
@@ -301,16 +284,6 @@ contract RandomizedCounter is
         emit LogSetPoolLpLimit(poolLpLimit);
     }
 
-    /**
-     * @notice Function to set address of the random number consumer (chain link vrf)
-     */
-    function setRandomNumberConsumer(
-        IRandomNumberConsumer randomNumberConsumer_
-    ) external onlyOwner {
-        randomNumberConsumer = IRandomNumberConsumer(randomNumberConsumer_);
-        emit LogSetRandomNumberConsumer(randomNumberConsumer);
-    }
-
     function setMultiSigRewardPercentage(uint256 multiSigRewardPercentage_)
         external
         onlyOwner
@@ -346,7 +319,6 @@ contract RandomizedCounter is
         address debase_,
         address pairToken_,
         address policy_,
-        address randomNumberConsumer_,
         address link_,
         uint256 rewardPercentage_,
         uint256 blockDuration_,
@@ -362,7 +334,6 @@ contract RandomizedCounter is
         setStakeToken(pairToken_);
         debase = IERC20(debase_);
         link = IERC20(link_);
-        randomNumberConsumer = IRandomNumberConsumer(randomNumberConsumer_);
         policy = policy_;
         count = 0;
 
@@ -396,48 +367,41 @@ contract RandomizedCounter is
             "Only debase policy contract can call this"
         );
 
-        if (newBufferFunds) {
-            uint256 previousUnusedRewardToClaim =
-                debase.totalSupply().mul(lastRewardPercentage).div(10**18);
-
-            if (
-                debase.balanceOf(address(this)) >= previousUnusedRewardToClaim
-            ) {
-                debase.safeTransfer(policy, previousUnusedRewardToClaim);
-                emit LogRewardsClaimed(previousUnusedRewardToClaim);
-            }
-            newBufferFunds = false;
-        }
-
         if (supplyDelta_ > 0) {
             count = count.add(1);
 
             // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
-            if (
-                link.balanceOf(address(randomNumberConsumer)) >=
-                randomNumberConsumer.fee() &&
-                (beforePeriodFinish || block.number >= periodFinish)
-            ) {
+            if (beforePeriodFinish || block.number >= periodFinish) {
                 uint256 rewardToClaim =
                     debasePolicyBalance.mul(rewardPercentage).div(10**18);
 
                 uint256 multiSigRewardAmount =
                     rewardToClaim.mul(multiSigRewardPercentage).div(10**18);
 
-                lastRewardPercentage = rewardToClaim.mul(10**18).div(
-                    debase.totalSupply()
-                );
-
-                multiSigRewardToClaimShare = multiSigRewardAmount
-                    .mul(10**18)
-                    .div(debase.totalSupply());
+                uint256 rewardToClaimPercentage =
+                    rewardToClaim.mul(10**18).div(debase.totalSupply());
 
                 uint256 totalRewardToClaim =
                     rewardToClaim.add(multiSigRewardAmount);
 
                 if (totalRewardToClaim <= debasePolicyBalance) {
-                    newBufferFunds = true;
-                    randomNumberConsumer.getRandomNumber(block.number);
+                    uint256 lastRandomThreshold =
+                        normalDistribution[block.timestamp.mod(100)];
+
+                    emit LogLastRandomThreshold(lastRandomThreshold);
+
+                    if (count >= lastRandomThreshold) {
+                        startNewDistributionCycle(rewardToClaimPercentage);
+                        count = 0;
+
+                        if (multiSigRewardAmount != 0) {
+                            debase.transfer(
+                                multiSigAddress,
+                                multiSigRewardAmount
+                            );
+                        }
+                    }
+
                     emit LogRewardsClaimed(totalRewardToClaim);
                     return totalRewardToClaim;
                 }
@@ -474,36 +438,7 @@ contract RandomizedCounter is
         return 0;
     }
 
-    function claimer(uint256 randomNumber) external {
-        require(
-            msg.sender == address(randomNumberConsumer),
-            "Only debase policy contract can call this"
-        );
-        newBufferFunds = false;
-
-        uint256 lastRandomThreshold = normalDistribution[randomNumber.mod(100)];
-        emit LogLastRandomThreshold(lastRandomThreshold);
-
-        if (count >= lastRandomThreshold) {
-            startNewDistributionCycle();
-            count = 0;
-
-            if (multiSigRewardToClaimShare != 0) {
-                uint256 amountToClaim =
-                    debase.totalSupply().mul(multiSigRewardToClaimShare).div(
-                        10**18
-                    );
-
-                debase.transfer(multiSigAddress, amountToClaim);
-            }
-        } else {
-            uint256 rewardToClaim =
-                debase.totalSupply().mul(lastRewardPercentage).div(10**18);
-
-            debase.safeTransfer(policy, rewardToClaim);
-            emit LogClaimRevoked(rewardToClaim);
-        }
-    }
+    function claimer() internal {}
 
     /**
      * @notice Function allows for emergency withdrawal of all reward tokens back into stabilizer fund
@@ -603,7 +538,10 @@ contract RandomizedCounter is
         }
     }
 
-    function startNewDistributionCycle() internal updateReward(address(0)) {
+    function startNewDistributionCycle(uint256 amount)
+        internal
+        updateReward(address(0))
+    {
         // https://sips.synthetix.io/sips/sip-77
         require(
             debase.balanceOf(address(this)) < uint256(-1) / 10**18,
@@ -611,17 +549,17 @@ contract RandomizedCounter is
         );
 
         if (block.number >= periodFinish) {
-            rewardRate = lastRewardPercentage.div(blockDuration);
+            rewardRate = amount.div(blockDuration);
         } else {
             uint256 remaining = periodFinish.sub(block.number);
             uint256 leftover = remaining.mul(rewardRate);
-            rewardRate = lastRewardPercentage.add(leftover).div(blockDuration);
+            rewardRate = amount.add(leftover).div(blockDuration);
         }
         lastUpdateBlock = block.number;
         periodFinish = block.number.add(blockDuration);
 
         emit LogStartNewDistributionCycle(
-            lastRewardPercentage,
+            amount,
             rewardRate,
             periodFinish,
             count
