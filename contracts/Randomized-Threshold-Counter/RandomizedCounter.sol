@@ -143,9 +143,6 @@ contract RandomizedCounter is
     // Flag to enable or disable   sequence checker
     bool public countInSequence;
 
-    //Address of the link token
-    IERC20 public link;
-
     // Flag to send reward before stabilizer pool period time finished
     bool public beforePeriodFinish;
 
@@ -319,7 +316,6 @@ contract RandomizedCounter is
         address debase_,
         address pairToken_,
         address policy_,
-        address link_,
         uint256 rewardPercentage_,
         uint256 blockDuration_,
         bool enableUserLpLimit_,
@@ -333,7 +329,6 @@ contract RandomizedCounter is
     ) public initializer {
         setStakeToken(pairToken_);
         debase = IERC20(debase_);
-        link = IERC20(link_);
         policy = policy_;
         count = 0;
 
@@ -352,7 +347,7 @@ contract RandomizedCounter is
 
     /**
      * @notice When a rebase happens this function is called by the rebase function. If the supplyDelta is positive (supply increase) a random
-     * will be constructed using Chainlink VRF. The mod of the random number is taken to get a number between 0-100. This result
+     * will be constructed peudo random. The mod of the random number is taken to get a number between 0-100. This result
      * is used as a index to get a number from the normal distribution array. The number returned will be compared against the current count of
      * positive rebases and if the count is equal to or greater that the number obtained from array, then the pool will request rewards from the stabilizer pool.
      */
@@ -370,7 +365,6 @@ contract RandomizedCounter is
         if (supplyDelta_ > 0) {
             count = count.add(1);
 
-            // Call random number fetcher only if the random number consumer has link in its balance to do so. Otherwise return 0
             if (beforePeriodFinish || block.number >= periodFinish) {
                 uint256 rewardToClaim =
                     debasePolicyBalance.mul(rewardPercentage).div(10**18);
