@@ -46,12 +46,18 @@ contract BurnPool is Ownable, Curve, Initializable {
     using SafeMathInt for int256;
     using Address for address;
 
-    event LogStartNewDistributionCycle(
+    event LogStartNewCouponDistributionCycle(
         uint256 exchangeRate_,
         uint256 poolShareAdded_,
         uint256 rewardRate_,
         uint256 periodFinish_,
         bytes16 curveValue_
+    );
+
+    event LogStartNewDepositDistributionCycle(
+        uint256 depositShareAdded_,
+        uint256 rewardRate_,
+        uint256 periodFinish_
     );
 
     event LogNeutralRebase(bool rewardDistributionDisabled_);
@@ -177,6 +183,19 @@ contract BurnPool is Ownable, Curve, Initializable {
     // Showing last rebase that happened
     Rebase public lastRebase;
 
+    // The rewards distributed in %s of the total supply in reward cycle
+    uint256 depositBlockDuration;
+    uint256 depositRewardRate;
+    uint256 depositPeriodFinish;
+    uint256 depositLastUpdateBlock;
+    uint256 depositRewardPerTokenStored;
+    mapping(address => uint256) userDebaseShareBalance;
+    mapping(address => uint256) depositUserRewardPerTokenPaid;
+    mapping(address => uint256) depositRewards;
+
+    uint256 totalDebaseShareDeposited;
+    uint256 depositRewardsDistributed;
+
     // Struct saving the data related rebase cycles
     struct RewardCycle {
         // Shows the %s of the totalSupply to be given as reward
@@ -189,18 +208,20 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 couponBuyBlockPeriod;
         // The number of blocks coupons cant be bought
         uint256 couponLockBlockPeriod;
-        // Flag to enable or disable coupon buying
-        bool couponBuying;
         // Last Price of the oracle used to open or close coupon buying
         uint256 oracleLastPrice;
         // The block number when the oracle with update next
         uint256 oracleNextUpdate;
         // Shows the number of epoch(rebases) to distribute rewards for
         uint256 epochsToReward;
+        // Flag to enable or disable coupon buying
+        bool couponBuying;
+        // Flag to start deposit distibution from previous cycle
+        bool depositDistributionStart;
         // Shows the number of epochs(rebases) rewarded
         uint256 epochsRewarded;
         // The share of debase deposited
-        uint256 totalDebaseShareDeposited;
+        uint256 debaseShareDeposited;
         // The number if coupouns issued/Debase sold in the contraction cycle
         uint256 couponsIssued;
         // The reward Rate for the distribution cycle
@@ -212,15 +233,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         mapping(address => uint256) couponUserRewardPerTokenPaid;
         mapping(address => uint256) couponRewards;
         uint256 couponRewardsDistributed;
-        // The rewards distributed in %s of the total supply in reward cycle
-        uint256 depositRewardRate;
-        uint256 depositPeriodFinish;
-        uint256 depositLastUpdateBlock;
-        uint256 depositRewardPerTokenStored;
-        mapping(address => uint256) userDebaseShareBalance;
-        mapping(address => uint256) depositUserRewardPerTokenPaid;
-        mapping(address => uint256) depositRewards;
-        uint256 depositRewardsDistributed;
     }
 
     // Array of rebase cycles
@@ -250,15 +262,14 @@ contract BurnPool is Ownable, Curve, Initializable {
         _;
     }
 
-    modifier updateDepositReward(address account, uint256 index) {
-        RewardCycle storage instance = rewardCycles[index];
-
-        instance.depositRewardPerTokenStored = depositRewardPerToken(index);
-        instance.depositLastUpdateBlock = lastDepositRewardApplicable(index);
+    modifier updateDepositReward(address account) {
+        depositRewardPerTokenStored = depositRewardPerToken();
+        depositLastUpdateBlock = lastDepositRewardApplicable();
         if (account != address(0)) {
-            instance.depositRewards[account] = earnedDepoits(index, account);
-            instance.depositUserRewardPerTokenPaid[account] = instance
-                .depositRewardPerTokenStored;
+            depositRewards[account] = earnedDepoits(account);
+            depositUserRewardPerTokenPaid[
+                account
+            ] = depositRewardPerTokenStored;
         }
         _;
     }
@@ -540,15 +551,11 @@ contract BurnPool is Ownable, Curve, Initializable {
                     rewardBlockPeriod,
                     couponBuyBlockPeriod,
                     couponLockBlockPeriod,
-                    true,
                     exchangeRate_,
                     block.number.add(couponBuyBlockPeriod),
                     epochs,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
+                    true,
+                    false,
                     0,
                     0,
                     0,
@@ -689,6 +696,18 @@ contract BurnPool is Ownable, Curve, Initializable {
         } else {
             lastRebase = Rebase.POSITIVE;
 
+            if (rewardCyclesLength != 0) {
+                RewardCycle storage instance =
+                    rewardCycles[rewardCyclesLength.sub(1)];
+
+                if (!instance.depositDistributionStart) {
+                    instance.depositDistributionStart = true;
+                    startNewDepositDistributionCycle(
+                        instance.debaseShareDeposited
+                    );
+                }
+            }
+
             uint256 currentSupply = debase.totalSupply();
             uint256 newSupply = uint256(supplyDelta_.abs()).add(currentSupply);
 
@@ -814,13 +833,14 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 debaseDepositShare =
                 debaseSent.mul(10**18).div(debase.totalSupply());
 
-            instance.userDebaseShareBalance[msg.sender] = instance
-                .userDebaseShareBalance[msg.sender]
+            userDebaseShareBalance[msg.sender] = userDebaseShareBalance[
+                msg.sender
+            ]
                 .add(debaseDepositShare);
 
-            instance.totalDebaseShareDeposited = instance
-                .totalDebaseShareDeposited
-                .add(debaseDepositShare);
+            totalDebaseShareDeposited = totalDebaseShareDeposited.add(
+                debaseDepositShare
+            );
 
             instance.userCouponBalances[msg.sender] = instance
                 .userCouponBalances[msg.sender]
@@ -854,14 +874,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         return Math.min(block.number, rewardCycles[index].couponPeriodFinish);
     }
 
-    function lastDepositRewardApplicable(uint256 index)
-        internal
-        view
-        returns (uint256)
-    {
-        return Math.min(block.number, rewardCycles[index].depositPeriodFinish);
-    }
-
     function couponRewardPerToken(uint256 index)
         internal
         view
@@ -883,46 +895,6 @@ contract BurnPool is Ownable, Curve, Initializable {
             );
     }
 
-    function depositRewardPerToken(uint256 index)
-        internal
-        view
-        returns (uint256)
-    {
-        RewardCycle memory instance = rewardCycles[index];
-
-        if (instance.couponsIssued == 0) {
-            return instance.depositRewardPerTokenStored;
-        }
-
-        return
-            instance.depositRewardPerTokenStored.add(
-                lastCouponRewardApplicable(index)
-                    .sub(instance.depositLastUpdateBlock)
-                    .mul(instance.depositRewardRate)
-                    .mul(10**18)
-                    .div(instance.couponsIssued)
-            );
-    }
-
-    function earnedDepoits(uint256 index, address account)
-        public
-        view
-        checkArrayAndIndex(index)
-        returns (uint256)
-    {
-        RewardCycle storage instance = rewardCycles[index];
-
-        return
-            instance.userCouponBalances[account]
-                .mul(
-                couponRewardPerToken(index).sub(
-                    instance.depositUserRewardPerTokenPaid[account]
-                )
-            )
-                .div(10**18)
-                .add(instance.depositRewards[account]);
-    }
-
     function earnedCoupons(uint256 index, address account)
         public
         view
@@ -934,7 +906,7 @@ contract BurnPool is Ownable, Curve, Initializable {
         return
             instance.userCouponBalances[account]
                 .mul(
-                depositRewardPerToken(index).sub(
+                couponRewardPerToken(index).sub(
                     instance.couponUserRewardPerTokenPaid[account]
                 )
             )
@@ -970,34 +942,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         }
     }
 
-    function getDepositReward(uint256 index)
-        public
-        updateDepositReward(msg.sender, index)
-    {
-        require(
-            lastRebase == Rebase.POSITIVE,
-            "Can only claim rewards when last rebase was positive"
-        );
-        uint256 reward = earnedDepoits(index, msg.sender);
-
-        if (reward > 0) {
-            RewardCycle storage instance = rewardCycles[index];
-
-            instance.depositRewards[msg.sender] = 0;
-
-            uint256 rewardToClaim =
-                debase.totalSupply().mul(reward).div(10**18);
-
-            instance.depositRewardsDistributed = instance
-                .depositRewardsDistributed
-                .add(reward);
-            totalRewardsDistributed = totalRewardsDistributed.add(reward);
-
-            emit LogRewardClaimed(msg.sender, index, rewardToClaim);
-            debase.safeTransfer(msg.sender, rewardToClaim);
-        }
-    }
-
     function startNewCouponDistributionCycle(
         uint256 exchangeRate_,
         uint256 totalDebaseToClaim,
@@ -1005,14 +949,6 @@ contract BurnPool is Ownable, Curve, Initializable {
         bytes16 curveValue
     ) internal updateCouponReward(address(0), rewardCyclesLength.sub(1)) {
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
-
-        // https://sips.synthetix.io/sips/sip-77
-        uint256 poolBal =
-            totalDebaseToClaim.add(debase.balanceOf(address(this)));
-        require(
-            poolBal < uint256(-1) / 10**18,
-            "Rewards: rewards too large, would lock"
-        );
 
         if (block.number >= instance.couponPeriodFinish) {
             instance.couponRewardRate = poolTotalShare.div(
@@ -1031,7 +967,7 @@ contract BurnPool is Ownable, Curve, Initializable {
             instance.rewardBlockPeriod
         );
 
-        emit LogStartNewDistributionCycle(
+        emit LogStartNewCouponDistributionCycle(
             exchangeRate_,
             poolTotalShare,
             instance.couponRewardRate,
@@ -1040,45 +976,71 @@ contract BurnPool is Ownable, Curve, Initializable {
         );
     }
 
-    function startNewDepositDistributionCycle(
-        uint256 exchangeRate_,
-        uint256 totalDebaseToClaim,
-        uint256 poolTotalShare,
-        bytes16 curveValue
-    ) internal updateDepositReward(address(0), rewardCyclesLength.sub(1)) {
-        RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
+    function lastDepositRewardApplicable() internal view returns (uint256) {
+        return Math.min(block.number, depositPeriodFinish);
+    }
 
-        // https://sips.synthetix.io/sips/sip-77
-        uint256 poolBal =
-            totalDebaseToClaim.add(debase.balanceOf(address(this)));
-        require(
-            poolBal < uint256(-1) / 10**18,
-            "Rewards: rewards too large, would lock"
-        );
-
-        if (block.number >= instance.depositPeriodFinish) {
-            instance.depositRewardRate = poolTotalShare.div(
-                instance.rewardBlockPeriod
-            );
-        } else {
-            uint256 remaining = instance.depositPeriodFinish.sub(block.number);
-            uint256 leftover = remaining.mul(instance.depositRewardRate);
-            instance.depositRewardRate = poolTotalShare.add(leftover).div(
-                instance.rewardBlockPeriod
-            );
+    function depositRewardPerToken() internal view returns (uint256) {
+        if (totalDebaseShareDeposited == 0) {
+            return depositRewardPerTokenStored;
         }
 
-        instance.depositLastUpdateBlock = block.number;
-        instance.depositPeriodFinish = block.number.add(
-            instance.rewardBlockPeriod
-        );
+        return
+            depositRewardPerTokenStored.add(
+                lastDepositRewardApplicable()
+                    .sub(depositLastUpdateBlock)
+                    .mul(depositRewardRate)
+                    .mul(10**18)
+                    .div(totalDebaseShareDeposited)
+            );
+    }
 
-        emit LogStartNewDistributionCycle(
-            exchangeRate_,
-            poolTotalShare,
-            instance.depositRewardRate,
-            instance.depositPeriodFinish,
-            curveValue
+    function earnedDepoits(address account) public view returns (uint256) {
+        return
+            userDebaseShareBalance[account]
+                .mul(
+                depositRewardPerToken().sub(
+                    depositUserRewardPerTokenPaid[account]
+                )
+            )
+                .div(10**18)
+                .add(depositRewards[account]);
+    }
+
+    function getDepositReward() public updateDepositReward(msg.sender) {
+        uint256 reward = earnedDepoits(msg.sender);
+
+        if (reward > 0) {
+            depositRewards[msg.sender] = 0;
+
+            uint256 rewardToClaim =
+                debase.totalSupply().mul(reward).div(10**18);
+
+            depositRewardsDistributed = depositRewardsDistributed.add(reward);
+
+            debase.safeTransfer(msg.sender, rewardToClaim);
+        }
+    }
+
+    function startNewDepositDistributionCycle(uint256 amount)
+        internal
+        updateDepositReward(address(0))
+    {
+        if (block.number >= depositPeriodFinish) {
+            depositRewardRate = amount.div(rewardBlockPeriod);
+        } else {
+            uint256 remaining = depositPeriodFinish.sub(block.number);
+            uint256 leftover = remaining.mul(depositRewardRate);
+            depositRewardRate = amount.add(leftover).div(rewardBlockPeriod);
+        }
+
+        depositLastUpdateBlock = block.number;
+        depositPeriodFinish = block.number.add(depositBlockDuration);
+
+        emit LogStartNewDepositDistributionCycle(
+            amount,
+            depositRewardRate,
+            depositPeriodFinish
         );
     }
 }
