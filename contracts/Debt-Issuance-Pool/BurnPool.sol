@@ -948,6 +948,12 @@ contract BurnPool is Ownable, Curve, Initializable {
         uint256 poolTotalShare,
         bytes16 curveValue
     ) internal updateCouponReward(address(0), rewardCyclesLength.sub(1)) {
+        // https://sips.synthetix.io/sips/sip-77
+        require(
+            debase.balanceOf(address(this)).add(totalDebaseToClaim) <
+                uint256(-1) / 10**18,
+            "Rewards: rewards too large, would lock"
+        );
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
         if (block.number >= instance.couponPeriodFinish) {
@@ -1026,6 +1032,12 @@ contract BurnPool is Ownable, Curve, Initializable {
         internal
         updateDepositReward(address(0))
     {
+        // https://sips.synthetix.io/sips/sip-77
+        require(
+            debase.balanceOf(address(this)) < uint256(-1) / 10**18,
+            "Rewards: rewards too large, would lock"
+        );
+
         if (block.number >= depositPeriodFinish) {
             depositRewardRate = amount.div(rewardBlockPeriod);
         } else {
