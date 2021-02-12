@@ -9,9 +9,9 @@
 ╚═════╝ ╚══════╝╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝
                                                
 
-* Debase: RandomizedCounter.sol
+* Debase: ExpansionRewarder.sol
 * Description:
-* Counts rebases and distributes rewards when a random threshold is triggered.
+* Pool that pool the issues rewards on expansions of debase supply
 * Coded by: punkUnknown
 */
 
@@ -21,9 +21,9 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/math/Math.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-import "@openzeppelin/upgrades/contracts/Initializable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "hardhat/console.sol";
 
 contract LPTokenWrapper {
     using SafeMath for uint256;
@@ -59,68 +59,42 @@ contract LPTokenWrapper {
     }
 }
 
-contract RandomizedCounter is
-    Ownable,
-    Initializable,
-    LPTokenWrapper,
-    ReentrancyGuard
-{
+contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     using Address for address;
 
-    event LogEmergencyWithdraw(uint256 timestamp);
-    event LogSetCountThreshold(uint256 countThreshold_);
-    event LogSetBeforePeriodFinish(bool beforePeriodFinish_);
-    event LogSetCountInSequence(bool countInSequence_);
+    event LogEmergencyWithdraw(uint256 number);
     event LogSetRewardPercentage(uint256 rewardPercentage_);
-    event LogSetRevokeReward(bool revokeReward_);
-    event LogSetRevokeRewardPrecentage(uint256 revokeRewardPrecentage_);
-    event LogSetNormalDistribution(
-        uint256 noramlDistributionMean_,
-        uint256 normalDistributionDeviation_,
-        uint256[100] normalDistribution_
-    );
-    event LogSetMultiSigAddress(address multiSigAddress_);
-    event LogSetMultiSigRewardPercentage(uint256 multiSigRewardPercentage_);
-    event LogRevokeRewardDuration(uint256 revokeRewardDuration_);
-    event LogLastRandomThreshold(uint256 lastRandomThreshold_);
-    event LogSetBlockDuration(uint256 blockDuration_);
-    event LogStartNewDistributionCycle(
-        uint256 poolShareAdded_,
-        uint256 rewardRate_,
-        uint256 periodFinish_,
-        uint256 count_
-    );
-    event LogRandomThresold(uint256 randomNumber);
+    event LogSetBlockDuration(uint256 duration_);
     event LogSetPoolEnabled(bool poolEnabled_);
+    event LogStartNewDistribtionCycle(
+        uint256 poolShareAdded_,
+        uint256 amount_,
+        uint256 rewardRate_,
+        uint256 periodFinish_
+    );
+
     event LogSetEnableUserLpLimit(bool enableUserLpLimit_);
     event LogSetEnablePoolLpLimit(bool enablePoolLpLimit_);
     event LogSetUserLpLimit(uint256 userLpLimit_);
     event LogSetPoolLpLimit(uint256 poolLpLimit_);
-    event LogRewardsClaimed(uint256 rewardAmount_);
+
     event LogRewardAdded(uint256 reward);
-    event LogRewardRevoked(
-        uint256 revokeDuratoin,
-        uint256 precentageRevoked,
-        uint256 amountRevoked
-    );
-    event LogClaimRevoked(uint256 claimAmountRevoked_);
     event LogStaked(address indexed user, uint256 amount);
     event LogWithdrawn(address indexed user, uint256 amount);
     event LogRewardPaid(address indexed user, uint256 reward);
-    event LogManualPoolStarted(uint256 startedAt);
 
     IERC20 public debase;
     address public policy;
+    uint256 public blockDuration;
     bool public poolEnabled;
 
     uint256 public periodFinish;
+    uint256 public periodLeft;
     uint256 public rewardRate;
     uint256 public lastUpdateBlock;
     uint256 public rewardPerTokenStored;
     uint256 public rewardPercentage;
     uint256 public rewardDistributed;
-
-    uint256 public blockDuration;
 
     //Flag to enable amount of lp that can be staked by a account
     bool public enableUserLpLimit;
@@ -131,32 +105,6 @@ contract RandomizedCounter is
     bool public enablePoolLpLimit;
     //Total amount of lp tat can be staked
     uint256 public poolLpLimit;
-
-    uint256 public revokeRewardDuration;
-
-    // Should revoke reward
-    bool public revokeReward;
-
-    // The count of s hitting their target
-    uint256 public count;
-
-    // Flag to enable or disable   sequence checker
-    bool public countInSequence;
-
-    // Flag to send reward before stabilizer pool period time finished
-    bool public beforePeriodFinish;
-
-    // The mean for the normal distribution added
-    uint256 public normalDistributionMean;
-
-    // The deviation for te normal distribution added
-    uint256 public normalDistributionDeviation;
-
-    // The array of normal distribution value data
-    uint256[100] public normalDistribution;
-
-    address public multiSigAddress;
-    uint256 public multiSigRewardPercentage;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
@@ -185,48 +133,9 @@ contract RandomizedCounter is
     }
 
     /**
-     * @notice Function to enable or disable count should be in sequence
-     */
-    function setCountInSequence(bool countInSequence_) external onlyOwner {
-        countInSequence = countInSequence_;
-        count = 0;
-        emit LogSetCountInSequence(!countInSequence);
-    }
-
-    /**
-     * @notice Function to enable or disable reward revoking
-     */
-    function setRevokeReward(bool revokeReward_) external onlyOwner {
-        revokeReward = revokeReward_;
-        emit LogSetRevokeReward(revokeReward);
-    }
-
-    /**
-     * @notice Function to set how much of the reward duration should be revoked
-     */
-    function setRevokeRewardDuration(uint256 revokeRewardDuration_)
-        external
-        onlyOwner
-    {
-        revokeRewardDuration = revokeRewardDuration_;
-        emit LogRevokeRewardDuration(revokeRewardDuration);
-    }
-
-    /**
-     * @notice Function to allow reward distribution before previous rewards have been distributed
-     */
-    function setBeforePeriodFinish(bool beforePeriodFinish_)
-        external
-        onlyOwner
-    {
-        beforePeriodFinish = beforePeriodFinish_;
-        emit LogSetBeforePeriodFinish(beforePeriodFinish);
-    }
-
-    /**
      * @notice Function to set reward drop period
      */
-    function setBlockDuration(uint256 blockDuration_) external onlyOwner {
+    function setblockDuration(uint256 blockDuration_) external onlyOwner {
         require(blockDuration >= 1);
         blockDuration = blockDuration_;
         emit LogSetBlockDuration(blockDuration);
@@ -237,7 +146,6 @@ contract RandomizedCounter is
      */
     function setPoolEnabled(bool poolEnabled_) external onlyOwner {
         poolEnabled = poolEnabled_;
-        count = 0;
         emit LogSetPoolEnabled(poolEnabled);
     }
 
@@ -281,38 +189,7 @@ contract RandomizedCounter is
         emit LogSetPoolLpLimit(poolLpLimit);
     }
 
-    function setMultiSigRewardPercentage(uint256 multiSigRewardPercentage_)
-        external
-        onlyOwner
-    {
-        multiSigRewardPercentage = multiSigRewardPercentage_;
-        emit LogSetMultiSigRewardPercentage(multiSigRewardPercentage);
-    }
-
-    function setMultiSigAddress(address multiSigAddress_) external onlyOwner {
-        multiSigAddress = multiSigAddress_;
-        emit LogSetMultiSigAddress(multiSigAddress);
-    }
-
-    /**
-     * @notice Function to set the normal distribution array and its associated mean/deviation
-     */
-    function setNormalDistribution(
-        uint256 normalDistributionMean_,
-        uint256 normalDistributionDeviation_,
-        uint256[100] calldata normalDistribution_
-    ) external onlyOwner {
-        normalDistributionMean = normalDistributionMean_;
-        normalDistributionDeviation = normalDistributionDeviation_;
-        normalDistribution = normalDistribution_;
-        emit LogSetNormalDistribution(
-            normalDistributionMean,
-            normalDistributionDeviation,
-            normalDistribution
-        );
-    }
-
-    function initialize(
+    constructor(
         address debase_,
         address pairToken_,
         address policy_,
@@ -321,36 +198,21 @@ contract RandomizedCounter is
         bool enableUserLpLimit_,
         uint256 userLpLimit_,
         bool enablePoolLpLimit_,
-        uint256 poolLpLimit_,
-        uint256 revokeRewardDuration_,
-        uint256 normalDistributionMean_,
-        uint256 normalDistributionDeviation_,
-        uint256[100] memory normalDistribution_
-    ) public initializer {
+        uint256 poolLpLimit_
+    ) public {
         setStakeToken(pairToken_);
         debase = IERC20(debase_);
         policy = policy_;
-        count = 0;
 
         blockDuration = blockDuration_;
-        enableUserLpLimit = enableUserLpLimit_;
-        userLpLimit = userLpLimit_;
-        enablePoolLpLimit = enablePoolLpLimit_;
-        poolLpLimit = poolLpLimit_;
         rewardPercentage = rewardPercentage_;
-        revokeRewardDuration = revokeRewardDuration_;
-        countInSequence = true;
-        normalDistribution = normalDistribution_;
-        normalDistributionMean = normalDistributionMean_;
-        normalDistributionDeviation = normalDistributionDeviation_;
+
+        userLpLimit = userLpLimit_;
+        enableUserLpLimit = enableUserLpLimit_;
+        poolLpLimit = poolLpLimit_;
+        enablePoolLpLimit = enablePoolLpLimit_;
     }
 
-    /**
-     * @notice When a rebase happens this function is called by the rebase function. If the supplyDelta is positive (supply increase) a random
-     * will be constructed peudo random. The mod of the random number is taken to get a number between 0-100. This result
-     * is used as a index to get a number from the normal distribution array. The number returned will be compared against the current count of
-     * positive rebases and if the count is equal to or greater that the number obtained from array, then the pool will request rewards from the stabilizer pool.
-     */
     function checkStabilizerAndGetReward(
         int256 supplyDelta_,
         int256 rebaseLag_,
@@ -362,77 +224,26 @@ contract RandomizedCounter is
             "Only debase policy contract can call this"
         );
 
-        if (supplyDelta_ > 0) {
-            count = count.add(1);
-
-            if (beforePeriodFinish || block.number >= periodFinish) {
+        if (supplyDelta_ >= 0) {
+            if (periodLeft != 0) {
+                periodFinish = block.number.add(periodLeft);
+                periodLeft = 0;
+            } else if (rewardPercentage != 0) {
                 uint256 rewardToClaim =
                     debasePolicyBalance.mul(rewardPercentage).div(10**18);
 
-                uint256 multiSigRewardAmount =
-                    rewardToClaim.mul(multiSigRewardPercentage).div(10**18);
-
-                uint256 rewardToClaimPercentage =
-                    rewardToClaim.mul(10**18).div(debase.totalSupply());
-
-                uint256 totalRewardToClaim =
-                    rewardToClaim.add(multiSigRewardAmount);
-
-                if (totalRewardToClaim <= debasePolicyBalance) {
-                    uint256 lastRandomThreshold =
-                        normalDistribution[block.timestamp.mod(100)];
-
-                    emit LogLastRandomThreshold(lastRandomThreshold);
-
-                    if (count >= lastRandomThreshold) {
-                        startNewDistributionCycle(rewardToClaimPercentage);
-                        count = 0;
-
-                        if (multiSigRewardAmount != 0) {
-                            debase.transfer(
-                                multiSigAddress,
-                                multiSigRewardAmount
-                            );
-                        }
-                    }
-
-                    emit LogRewardsClaimed(totalRewardToClaim);
-                    return totalRewardToClaim;
+                if (debasePolicyBalance >= rewardToClaim) {
+                    rewardPercentage = 0;
+                    startNewDistribtionCycle(rewardToClaim);
+                    return rewardToClaim;
                 }
             }
-        } else if (countInSequence) {
-            count = 0;
-
-            if (revokeReward && block.number < periodFinish) {
-                uint256 timeRemaining = periodFinish.sub(block.number);
-                // Rewards will only be revoked from period after the current period so unclaimed rewards arent taken away.
-                if (timeRemaining >= revokeRewardDuration) {
-                    //Set reward distribution period back
-                    periodFinish = periodFinish.sub(revokeRewardDuration);
-                    //Calculate reward to rewark by amount the reward moved back
-                    uint256 rewardToRevokeShare =
-                        rewardRate.mul(revokeRewardDuration);
-
-                    uint256 rewardToRevokeAmount =
-                        debase.totalSupply().mul(rewardToRevokeShare).div(
-                            10**18
-                        );
-
-                    lastUpdateBlock = block.number;
-
-                    debase.safeTransfer(policy, rewardToRevokeAmount);
-                    emit LogRewardRevoked(
-                        revokeRewardDuration,
-                        rewardToRevokeShare,
-                        rewardToRevokeAmount
-                    );
-                }
-            }
+        } else if (block.number < periodFinish) {
+            periodLeft = periodFinish.sub(block.number);
+            periodFinish = block.number;
         }
         return 0;
     }
-
-    function claimer() internal {}
 
     /**
      * @notice Function allows for emergency withdrawal of all reward tokens back into stabilizer fund
@@ -532,31 +343,34 @@ contract RandomizedCounter is
         }
     }
 
-    function startNewDistributionCycle(uint256 amount)
+    function startNewDistribtionCycle(uint256 amount)
         internal
         updateReward(address(0))
     {
         // https://sips.synthetix.io/sips/sip-77
+        uint256 totalBalance = amount.add(debase.balanceOf(address(this)));
         require(
-            debase.balanceOf(address(this)) < uint256(-1) / 10**18,
+            totalBalance < uint256(-1) / 10**18,
             "Rewards: rewards too large, would lock"
         );
 
+        uint256 amountShare = amount.mul(10**18).div(debase.totalSupply());
+
         if (block.number >= periodFinish) {
-            rewardRate = amount.div(blockDuration);
+            rewardRate = amountShare.div(blockDuration);
         } else {
             uint256 remaining = periodFinish.sub(block.number);
             uint256 leftover = remaining.mul(rewardRate);
-            rewardRate = amount.add(leftover).div(blockDuration);
+            rewardRate = amountShare.add(leftover).div(blockDuration);
         }
         lastUpdateBlock = block.number;
         periodFinish = block.number.add(blockDuration);
 
-        emit LogStartNewDistributionCycle(
+        emit LogStartNewDistribtionCycle(
+            amountShare,
             amount,
             rewardRate,
-            periodFinish,
-            count
+            periodFinish
         );
     }
 }

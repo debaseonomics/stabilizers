@@ -157,12 +157,12 @@ contract BurnPool is Ownable, Curve, Initializable {
     // when the pool launches and the next rebase is negative
     uint256 public initialRewardShare;
     //Flags to enable disable cap checks
-    bool public enableMaximumRewardAccruedCap;
-    bool public enableMinimumRewardAccruedCap;
+    bool public enableMaximumRewardAccruedCap = true;
+    bool public enableMinimumRewardAccruedCap = true;
     // Minimum reward to be given out on the condition that expansion is too low
-    uint256 public minimumRewardAccruedCap;
+    uint256 public minimumRewardAccruedCap = 50000000000000000;
     // Maximum reward to be given out on the condition that expansion is too high
-    uint256 public maximumRewardAccruedCap;
+    uint256 public maximumRewardAccruedCap = 100000000000000000;
     // The percentage of the current reward to be given in an epoch to be routed to the treasury
     uint256 public multiSigRewardShare;
     // The percentage of the total supply that can be claimed as rewards for the treasury
@@ -668,8 +668,8 @@ contract BurnPool is Ownable, Curve, Initializable {
             uint256 expansionPercentage =
                 newSupply.mul(10**18).div(currentSupply).sub(10**18);
 
-            uint256 targetRate =
-                policy.priceTargetRate().add(policy.upperDeviationThreshold());
+            uint256 targetRate = 1050000000000000000;
+                //policy.priceTargetRate().add(policy.upperDeviationThreshold());
 
             // Get the difference between the current price and the target price (1.05$ Dai)
             uint256 offset = exchangeRate_.add(curveShifter).sub(targetRate);
@@ -728,8 +728,8 @@ contract BurnPool is Ownable, Curve, Initializable {
      * then another oracle update is called.
      */
     function checkPriceOrUpdate() internal {
-        uint256 lowerPriceThreshold =
-            policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
+        uint256 lowerPriceThreshold = 950000000000000000;
+            //policy.priceTargetRate().sub(policy.lowerDeviationThreshold());
 
         RewardCycle storage instance = rewardCycles[rewardCyclesLength.sub(1)];
 
