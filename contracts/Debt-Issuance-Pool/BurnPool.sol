@@ -146,8 +146,10 @@ contract BurnPool is Ownable, Curve, Initializable {
 
     // The number rebases coupon rewards can be distributed for
     uint256 public epochs;
+
     // The total rewards in %s of the market cap distributed
-    uint256 public totalRewardsDistributed;
+    uint256 public totalCouponRewardsDistributed;
+    uint256 public totalDepositRewardsDistributed;
 
     // The period within which coupons can be bought
     uint256 public couponBuyBlockPeriod;
@@ -963,7 +965,9 @@ contract BurnPool is Ownable, Curve, Initializable {
             instance.rewardsDistributed = instance.rewardsDistributed.add(
                 reward
             );
-            totalRewardsDistributed = totalRewardsDistributed.add(reward);
+            totalCouponRewardsDistributed = totalCouponRewardsDistributed.add(
+                reward
+            );
 
             emit LogRewardClaimed(msg.sender, index, rewardToClaim);
             debase.safeTransfer(msg.sender, rewardToClaim);
@@ -1084,7 +1088,9 @@ contract BurnPool is Ownable, Curve, Initializable {
                 reward
             );
 
-            totalRewardsDistributed = totalRewardsDistributed.add(reward);
+            totalDepositRewardsDistributed = totalDepositRewardsDistributed.add(
+                reward
+            );
 
             emit LogRewardClaimed(msg.sender, index, rewardToClaim);
             debase.safeTransfer(msg.sender, rewardToClaim);
