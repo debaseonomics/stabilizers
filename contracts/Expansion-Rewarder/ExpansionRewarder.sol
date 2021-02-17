@@ -87,6 +87,8 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     event LogStaked(address indexed user, uint256 amount);
     event LogWithdrawn(address indexed user, uint256 amount);
     event LogRewardPaid(address indexed user, uint256 reward);
+    event LogSetMultiSigPercentage(uint256 multiSigReward_);
+    event LogSetMultiSigAddress(address multiSigAddress_);
 
     IERC20 public debase;
     address public policy;
@@ -97,6 +99,10 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     uint256 public rewardRate;
     uint256 public lastUpdateBlock;
     uint256 public rewardPerTokenStored;
+
+    uint256 public rewardPerTokenStoredMax;
+    uint256 public rewardShare;
+
     uint256 public rewardPercentage;
     uint256 public rewardDistributed;
 
@@ -104,6 +110,10 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     uint256 public stabilityRewardRate;
     uint256 public stabilityRewardRatePercentage;
     uint256 public cycleEnds;
+
+    uint256 public multiSigRewardPercentage;
+    uint256 public multiSigRewardShare;
+    address public multiSigRewardAddress;
 
     //Flag to enable amount of lp that can be staked by a account
     bool public enableUserLpLimit;
@@ -133,6 +143,11 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         _;
     }
 
+    modifier updateRewardMax() {
+        rewardPerTokenStoredMax = rewardPerTokenMax();
+        _;
+    }
+
     /**
      * @notice Function to set how much reward the stabilizer will request
      */
@@ -149,6 +164,28 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     ) external onlyOwner {
         stabilityRewardRatePercentage = stabilityRewardRatePercentage_;
         emit LogSetStabilityRewardRatePercentage(stabilityRewardRatePercentage);
+    }
+
+    /**
+     * @notice Function to set multiSig reward percentage
+     */
+    function setMultiSigReward(uint256 multiSigRewardPercentage_)
+        external
+        onlyOwner
+    {
+        multiSigRewardPercentage = multiSigRewardPercentage_;
+        emit LogSetMultiSigPercentage(multiSigRewardPercentage);
+    }
+
+    /**
+     * @notice Function to set multisig address
+     */
+    function setMultiSigAddress(address multiSigRewardAddress_)
+        external
+        onlyOwner
+    {
+        multiSigRewardAddress = multiSigRewardAddress_;
+        emit LogSetMultiSigAddress(multiSigRewardAddress);
     }
 
     /**
@@ -215,6 +252,8 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         uint256 rewardPercentage_,
         uint256 blockDuration_,
         uint256 stabilityRewardRatePercentage_,
+        uint256 multiSigRewardPercentage_,
+        address multiSigRewardAddress_,
         bool enableUserLpLimit_,
         uint256 userLpLimit_,
         bool enablePoolLpLimit_,
@@ -228,6 +267,8 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         rewardPercentage = rewardPercentage_;
 
         stabilityRewardRatePercentage = stabilityRewardRatePercentage_;
+        multiSigRewardPercentage = multiSigRewardPercentage_;
+        multiSigRewardAddress = multiSigRewardAddress_;
         userLpLimit = userLpLimit_;
         enableUserLpLimit = enableUserLpLimit_;
         poolLpLimit = poolLpLimit_;
@@ -245,34 +286,55 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             "Only debase policy contract can call this"
         );
 
-        if (block.number > periodFinish) {
-            if (block.number < cycleEnds) {
-                startRewards();
-            } else if (supplyDelta_ >= 0) {
+        if (multiSigRewardShare != 0) {
+            debase.safeTransfer(
+                multiSigRewardAddress,
+                debase.totalSupply().mul(multiSigRewardShare).div(10**18)
+            );
+            multiSigRewardShare = 0;
+        }
+
+        if (block.number >= cycleEnds) {
+            if (supplyDelta_ >= 0) {
+                if (rewardShare != 0) {
+                    uint256 balanceLost = rewardShare.sub(rewardPerTokenMax());
+                    debase.safeTransfer(
+                        policy,
+                        debase.totalSupply().mul(balanceLost).div(10**18)
+                    );
+                    rewardShare = 0;
+                }
+
                 uint256 rewardAmount =
                     debasePolicyBalance.mul(rewardPercentage).div(10**18);
 
-                uint256 poolBalance = debase.balanceOf(address(this));
+                uint256 multiSigRewardClaim =
+                    rewardAmount.mul(multiSigRewardPercentage).div(10**18);
 
-                if (poolBalance < rewardAmount) {
-                    uint256 rewardToClaim = rewardAmount.sub(poolBalance);
+                multiSigRewardShare = multiSigRewardClaim.mul(10**18).div(
+                    debase.totalSupply()
+                );
 
-                    if (debasePolicyBalance >= rewardToClaim) {
-                        startNewDistribtionCycle(supplyDelta_, rewardToClaim);
-                        return rewardToClaim;
-                    }
-                } else {
+                uint256 totalRewardAmount =
+                    multiSigRewardClaim.add(rewardAmount);
+
+                if (debasePolicyBalance >= totalRewardAmount) {
                     startNewDistribtionCycle(supplyDelta_, rewardAmount);
+                    return totalRewardAmount;
                 }
             }
-        }
+        } else {
+            if (block.number > periodFinish && supplyDelta_ >= 0) {
+                startRewards();
+            }
 
-        if (supplyDelta_ > 0 && rewardRate != expansionRewardRate) {
-            changeRewardRate(expansionRewardRate);
-        } else if (supplyDelta_ == 0 && rewardRate != stabilityRewardRate) {
-            changeRewardRate(stabilityRewardRate);
-        } else if (supplyDelta_ < 0 && block.number < periodFinish) {
-            pauseRewards();
+            if (supplyDelta_ > 0 && rewardRate != expansionRewardRate) {
+                changeRewardRate(expansionRewardRate);
+            } else if (supplyDelta_ == 0 && rewardRate != stabilityRewardRate) {
+                changeRewardRate(stabilityRewardRate);
+            } else if (supplyDelta_ < 0 && block.number < periodFinish) {
+                pauseRewards();
+            }
         }
         return 0;
     }
@@ -287,6 +349,16 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
 
     function lastBlockRewardApplicable() internal view returns (uint256) {
         return Math.min(block.number, periodFinish);
+    }
+
+    function rewardPerTokenMax() public view returns (uint256) {
+        if (totalSupply() == 0) {
+            return rewardPerTokenStored;
+        }
+        return
+            rewardPerTokenStoredMax.add(
+                lastBlockRewardApplicable().sub(lastUpdateBlock).mul(rewardRate)
+            );
     }
 
     function rewardPerToken() public view returns (uint256) {
@@ -316,6 +388,7 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         public
         override
         nonReentrant
+        updateRewardMax()
         updateReward(msg.sender)
         enabled
     {
@@ -348,6 +421,7 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         public
         override
         nonReentrant
+        updateRewardMax()
         updateReward(msg.sender)
     {
         require(amount > 0, "Cannot withdraw 0");
@@ -360,7 +434,13 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         getReward();
     }
 
-    function getReward() public nonReentrant updateReward(msg.sender) enabled {
+    function getReward()
+        public
+        nonReentrant
+        updateRewardMax()
+        updateReward(msg.sender)
+        enabled
+    {
         uint256 reward = earned(msg.sender);
         if (reward > 0) {
             rewards[msg.sender] = 0;
@@ -380,12 +460,17 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         periodFinish = cycleEnds;
     }
 
-    function pauseRewards() internal updateReward(address(0)) {
+    function pauseRewards()
+        internal
+        updateRewardMax()
+        updateReward(address(0))
+    {
         periodFinish = block.number;
     }
 
     function changeRewardRate(uint256 rewardRate_)
         internal
+        updateRewardMax()
         updateReward(address(0))
     {
         rewardRate = rewardRate_;
@@ -402,11 +487,12 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             "Rewards: rewards too large, would lock"
         );
 
-        uint256 amountShare = amount.mul(10**18).div(debase.totalSupply());
+        rewardShare = amount.mul(10**18).div(debase.totalSupply());
 
         periodFinish = block.number.add(blockDuration);
+        rewardPerTokenStoredMax = 0;
         cycleEnds = periodFinish;
-        expansionRewardRate = amountShare.div(blockDuration);
+        expansionRewardRate = rewardShare.div(blockDuration);
         stabilityRewardRate = expansionRewardRate
             .mul(stabilityRewardRatePercentage)
             .div(10**18);
@@ -420,7 +506,7 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         lastUpdateBlock = block.number;
 
         emit LogStartNewDistribtionCycle(
-            amountShare,
+            rewardShare,
             amount,
             rewardRate,
             expansionRewardRate,
