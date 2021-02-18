@@ -122,7 +122,7 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
 
     //Flag to enable total amount of lp that can be staked by all users
     bool public enablePoolLpLimit;
-    //Total amount of lp tat can be staked
+    //Total amount of lp total can be staked
     uint256 public poolLpLimit;
 
     mapping(address => uint256) public userRewardPerTokenPaid;
@@ -353,7 +353,7 @@ contract ExpansionRewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
 
     function rewardPerTokenMax() public view returns (uint256) {
         if (totalSupply() == 0) {
-            return rewardPerTokenStored;
+            return rewardPerTokenStoredMax;
         }
         return
             rewardPerTokenStoredMax.add(
