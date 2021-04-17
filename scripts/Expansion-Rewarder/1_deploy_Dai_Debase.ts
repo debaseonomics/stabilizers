@@ -18,16 +18,16 @@ async function main() {
 		const debase = '0x9248c485b0B80f76DA451f167A8db30F33C70907';
 		const pair = '0xE98f89a2B3AeCDBE2118202826478Eb02434459A';
 		const debasePolicy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
-		const rewardPercentage = parseUnits('5', 17);
+		const rewardPercentage = parseUnits('1550665', 9);
 		const multiSigAddress = '0xf038C1cfaDAce2C0E5963Ab5C0794B9575e1D2c2';
 		const multiSigShare = parseUnits('2', 17);
 		const stabilityPercentage = parseUnits('5', 17);
 
-		const duration = 25;
-		const userLpLimit = parseEther('20');
-        const userLpEnabled = true
-		const poolLpLimit = parseEther('50');
-        const poolLpEnabled = true
+		const duration = 45000;
+		const userLpLimit = parseEther('5');
+		const userLpEnabled = true;
+		const poolLpLimit = parseEther('70');
+		const poolLpEnabled = true;
 
 		const expansion = await expansionFactory.deploy(
 			debase,
