@@ -24,10 +24,6 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-interface IPool {
-    function claimReward() external returns (uint256, uint256);
-}
-
 contract LPTokenWrapper {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
@@ -92,7 +88,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     IERC20 public mph88;
     IERC20 public crv;
 
-    IPool public pool;
     address public policy;
     uint256 public blockDuration;
     bool public poolEnabled;
@@ -110,6 +105,8 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     uint256 public rewardDistributedDebase;
     uint256 public rewardDistributedMPH;
     uint256 public rewardDistributedCRV;
+    uint256 public mph88Reward;
+    uint256 public crvReward;
 
     uint256 public multiSigRewardPercentage;
     uint256 public multiSigRewardShare;
@@ -247,11 +244,18 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         emit LogSetPoolLpLimit(poolLpLimit);
     }
 
+    function setMPH88Reward(uint256 mph88Reward_) external onlyOwner {
+        mph88Reward = mph88Reward_;
+    }
+
+    function setCRVReward(uint256 crvReward_) external onlyOwner {
+        crvReward = crvReward_;
+    }
+
     constructor(
         IERC20 debase_,
         IERC20 mph88_,
         IERC20 crv_,
-        IPool pool_,
         address pairToken_,
         address policy_,
         uint256 rewardPercentage_,
@@ -268,7 +272,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         mph88 = mph88_;
         crv = crv_;
 
-        pool = pool_;
         policy = policy_;
 
         blockDuration = blockDuration_;
@@ -307,8 +310,7 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             uint256 totalRewardAmount = multiSigRewardClaim.add(rewardAmount);
 
             if (debasePolicyBalance >= totalRewardAmount) {
-                (uint256 mphReward, uint256 crvReward) = pool.claimReward();
-                startNewDistribtionCycle(rewardAmount, mphReward, crvReward);
+                startNewDistribtionCycle(rewardAmount);
                 return totalRewardAmount;
             }
         }
@@ -329,6 +331,8 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
      */
     function emergencyWithdraw() external onlyOwner {
         debase.safeTransfer(policy, debase.balanceOf(address(this)));
+        mph88.safeTransfer(policy, mph88.balanceOf(address(this)));
+        crv.safeTransfer(policy, crv.balanceOf(address(this)));
         emit LogEmergencyWithdraw(block.number);
     }
 
@@ -385,21 +389,38 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         ) = rewardPerToken();
 
         return (
-            balance
-                .mul(
-                rewardPerTokenDebase.sub(userRewardPerTokenPaidDebase[account])
+            calculateEarned(
+                balance,
+                rewardPerTokenDebase,
+                userRewardPerTokenPaidDebase[account],
+                rewardsDebase[account]
+            ),
+            calculateEarned(
+                balance,
+                rewardPerTokenMPH,
+                userRewardPerTokenPaidMPH[account],
+                rewardsMPH[account]
+            ),
+            calculateEarned(
+                balance,
+                rewardPerTokenCRV,
+                userRewardPerTokenPaidCRV[account],
+                rewardsCRV[account]
             )
-                .div(10**18)
-                .add(rewardsDebase[account]),
-            balance
-                .mul(rewardPerTokenMPH.sub(userRewardPerTokenPaidMPH[account]))
-                .div(10**18)
-                .add(rewardsMPH[account]),
-            balance
-                .mul(rewardPerTokenCRV.sub(userRewardPerTokenPaidCRV[account]))
-                .div(10**18)
-                .add(rewardsCRV[account])
         );
+    }
+
+    function calculateEarned(
+        uint256 balance,
+        uint256 rewardPerToken_,
+        uint256 userRewardPerTokenPaid_,
+        uint256 rewards_
+    ) internal pure returns (uint256) {
+        return
+            balance
+                .mul(rewardPerToken_.sub(userRewardPerTokenPaid_))
+                .div(10**18)
+                .add(rewards_);
     }
 
     // stake visibility is public as overriding LPTokenWrapper's stake() function
@@ -455,30 +476,35 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         (uint256 earnedDebase, uint256 earnedMPH, uint256 earnedCRV) =
             earned(msg.sender);
 
-        if (earnedDebase.add(earnedMPH).add(earnedCRV) > 0) {
+        if (earnedDebase > 0) {
             rewardsDebase[msg.sender] = 0;
-            rewardsMPH[msg.sender] = 0;
-            rewardsCRV[msg.sender] = 0;
 
             uint256 rewardToClaim =
                 debase.totalSupply().mul(earnedDebase).div(10**18);
 
             debase.safeTransfer(msg.sender, rewardToClaim);
-            mph88.safeTransfer(msg.sender, earnedMPH);
-            crv.safeTransfer(msg.sender, earnedCRV);
+            rewardDistributedDebase = rewardDistributedDebase.add(earnedDebase);
 
             emit LogRewardPaid(msg.sender, rewardToClaim);
-            rewardDistributedDebase = rewardDistributedDebase.add(earnedDebase);
+        }
+
+        if (earnedMPH > 0) {
+            rewardsMPH[msg.sender] = 0;
+            mph88.safeTransfer(msg.sender, earnedMPH);
             rewardDistributedMPH = rewardDistributedMPH.add(earnedMPH);
+        }
+
+        if (earnedCRV > 0) {
+            rewardsCRV[msg.sender] = 0;
+            crv.safeTransfer(msg.sender, earnedCRV);
             rewardDistributedCRV = rewardDistributedDebase.add(earnedCRV);
         }
     }
 
-    function startNewDistribtionCycle(
-        uint256 amount,
-        uint256 mphReward,
-        uint256 crvReward
-    ) internal updateReward(address(0)) {
+    function startNewDistribtionCycle(uint256 amount)
+        internal
+        updateReward(address(0))
+    {
         // https://sips.synthetix.io/sips/sip-77
         require(
             amount < uint256(-1) / 10**18,
@@ -488,8 +514,11 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         uint256 rewardShare = amount.mul(10**18).div(debase.totalSupply());
 
         rewardRateDebase = rewardShare.div(blockDuration);
-        rewardRateMPH = mphReward.div(blockDuration);
+        rewardRateMPH = mph88Reward.div(blockDuration);
         rewardRateCRV = crvReward.div(blockDuration);
+
+        mph88Reward = 0;
+        crvReward = 0;
 
         periodFinish = block.number.add(blockDuration);
         lastUpdateBlock = block.number;
