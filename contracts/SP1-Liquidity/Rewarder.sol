@@ -70,6 +70,9 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         uint256 rewardRate_,
         uint256 cycleEnds_
     );
+    event LogSetContractionRewardRatePercentage(
+        uint256 contractionRewardRatePercentage_
+    );
 
     event LogSetRewardRate(uint256 rewardRate_);
     event LogSetEnableUserLpLimit(bool enableUserLpLimit_);
@@ -93,13 +96,18 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     bool public poolEnabled;
 
     uint256 public periodFinish;
-    uint256 public rewardRateDebase;
-    uint256 public rewardRateMPH;
-    uint256 public rewardRateCRV;
-    uint256 public lastUpdateBlock;
-    uint256 public rewardPerTokenStoredDebase;
-    uint256 public rewardPerTokenStoredMPH;
-    uint256 public rewardPerTokenStoredCRV;
+    uint256 rewardRateDebase;
+    uint256 rewardRateDebaseExpansion;
+    uint256 rewardRateDebaseContraction;
+    uint256 public contractionRewardRatePercentage;
+
+    uint256 rewardShare;
+    uint256 rewardRateMPH;
+    uint256 rewardRateCRV;
+    uint256 lastUpdateBlock;
+    uint256 rewardPerTokenStoredDebase;
+    uint256 rewardPerTokenStoredMPH;
+    uint256 rewardPerTokenStoredCRV;
 
     uint256 public rewardPercentage;
     uint256 public rewardDistributedDebase;
@@ -112,19 +120,15 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     uint256 public multiSigRewardShare;
     address public multiSigRewardAddress;
 
-    //Flag to enable amount of lp that can be staked by a account
     bool public enableUserLpLimit;
-    //Amount of lp that can be staked by a account
     uint256 public userLpLimit;
 
-    //Flag to enable total amount of lp that can be staked by all users
     bool public enablePoolLpLimit;
-    //Total amount of lp total can be staked
     uint256 public poolLpLimit;
 
-    mapping(address => uint256) public userRewardPerTokenPaidDebase;
-    mapping(address => uint256) public userRewardPerTokenPaidMPH;
-    mapping(address => uint256) public userRewardPerTokenPaidCRV;
+    mapping(address => uint256) userRewardPerTokenPaidDebase;
+    mapping(address => uint256) userRewardPerTokenPaidMPH;
+    mapping(address => uint256) userRewardPerTokenPaidCRV;
 
     mapping(address => uint256) public rewardsDebase;
     mapping(address => uint256) public rewardsMPH;
@@ -155,6 +159,15 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             userRewardPerTokenPaidCRV[account] = rewardPerTokenStoredCRV;
         }
         _;
+    }
+
+    function setContractionRewardRatePercentage(
+        uint256 contractionRewardRatePercentage_
+    ) external onlyOwner {
+        contractionRewardRatePercentage = contractionRewardRatePercentage_;
+        emit LogSetContractionRewardRatePercentage(
+            contractionRewardRatePercentage
+        );
     }
 
     /**
@@ -296,7 +309,24 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             "Only debase policy contract can call this"
         );
 
+        if (multiSigRewardShare != 0) {
+            debase.safeTransfer(
+                multiSigRewardAddress,
+                debase.totalSupply().mul(multiSigRewardShare).div(10**18)
+            );
+            multiSigRewardShare = 0;
+        }
+
         if (block.number >= periodFinish) {
+            if (rewardShare != 0) {
+                (uint256 debaseRewardPerToken, , ) = rewardPerToken();
+                uint256 balanceLost = rewardShare.sub(debaseRewardPerToken);
+                debase.safeTransfer(
+                    policy,
+                    debase.totalSupply().mul(balanceLost).div(10**18)
+                );
+                rewardShare = 0;
+            }
             uint256 rewardAmount =
                 debasePolicyBalance.mul(rewardPercentage).div(10**18);
 
@@ -310,20 +340,23 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             uint256 totalRewardAmount = multiSigRewardClaim.add(rewardAmount);
 
             if (debasePolicyBalance >= totalRewardAmount) {
-                startNewDistribtionCycle(rewardAmount);
+                startNewDistribtionCycle(supplyDelta_, rewardAmount);
                 return totalRewardAmount;
+            }
+        } else {
+            if (
+                supplyDelta_ >= 0 &&
+                rewardRateDebase != rewardRateDebaseExpansion
+            ) {
+                changeRewardRate(rewardRateDebaseExpansion);
+            } else if (
+                supplyDelta_ < 0 &&
+                rewardRateDebase != rewardRateDebaseContraction
+            ) {
+                changeRewardRate(rewardRateDebaseContraction);
             }
         }
         return 0;
-    }
-
-    function multiSigWithdraw() external onlyOwner {
-        require(multiSigRewardShare != 0);
-        debase.safeTransfer(
-            multiSigRewardAddress,
-            debase.totalSupply().mul(multiSigRewardShare).div(10**18)
-        );
-        multiSigRewardShare = 0;
     }
 
     /**
@@ -501,7 +534,15 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         }
     }
 
-    function startNewDistribtionCycle(uint256 amount)
+    function changeRewardRate(uint256 rewardRateDebase_)
+        internal
+        updateReward(address(0))
+    {
+        rewardRateDebase = rewardRateDebase_;
+        emit LogSetRewardRate(rewardRateDebase);
+    }
+
+    function startNewDistribtionCycle(int256 supplyDelta_, uint256 amount)
         internal
         updateReward(address(0))
     {
@@ -511,21 +552,31 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             "Rewards: rewards too large, would lock"
         );
 
-        uint256 rewardShare = amount.mul(10**18).div(debase.totalSupply());
+        rewardShare = amount.mul(10**18).div(debase.totalSupply());
 
-        rewardRateDebase = rewardShare.div(blockDuration);
+        rewardRateDebaseExpansion = rewardShare.div(blockDuration);
+        rewardRateDebaseContraction = rewardRateDebaseExpansion
+            .mul(contractionRewardRatePercentage)
+            .div(10**18);
+
         rewardRateMPH = mph88Reward.div(blockDuration);
         rewardRateCRV = crvReward.div(blockDuration);
 
         mph88Reward = 0;
         crvReward = 0;
 
+        if (supplyDelta_ >= 0) {
+            rewardRateDebase = rewardRateDebaseExpansion;
+        } else {
+            rewardRateDebase = rewardRateDebaseContraction;
+        }
+
         periodFinish = block.number.add(blockDuration);
         lastUpdateBlock = block.number;
 
         emit LogStartNewDistribtionCycle(
             amount,
-            rewardRateDebase,
+            rewardRateDebaseExpansion,
             periodFinish
         );
     }
