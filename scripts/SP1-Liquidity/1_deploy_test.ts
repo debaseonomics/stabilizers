@@ -32,10 +32,7 @@ async function main() {
 			100,
 			0,
 			address,
-			false,
-			0,
-			false,
-			0
+			parseUnits('5',17)
 		);
 
 		console.log(rewarder.address);

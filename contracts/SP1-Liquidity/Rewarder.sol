@@ -67,7 +67,8 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     event LogSetPoolEnabled(bool poolEnabled_);
     event LogStartNewDistribtionCycle(
         uint256 amount_,
-        uint256 rewardRate_,
+        uint256 rewardRateDebaseExpansion_,
+        uint256 rewardRateDebaseContraction,
         uint256 cycleEnds_
     );
     event LogSetContractionRewardRatePercentage(
@@ -83,7 +84,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     event LogRewardAdded(uint256 reward);
     event LogStaked(address indexed user, uint256 amount);
     event LogWithdrawn(address indexed user, uint256 amount);
-    event LogRewardPaid(address indexed user, uint256 reward);
     event LogSetMultiSigPercentage(uint256 multiSigReward_);
     event LogSetMultiSigAddress(address multiSigAddress_);
 
@@ -101,7 +101,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     uint256 rewardRateDebaseContraction;
     uint256 public contractionRewardRatePercentage;
 
-    uint256 rewardShare;
     uint256 rewardRateMPH;
     uint256 rewardRateCRV;
     uint256 lastUpdateBlock;
@@ -119,12 +118,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
     uint256 public multiSigRewardPercentage;
     uint256 public multiSigRewardShare;
     address public multiSigRewardAddress;
-
-    bool public enableUserLpLimit;
-    uint256 public userLpLimit;
-
-    bool public enablePoolLpLimit;
-    uint256 public poolLpLimit;
 
     mapping(address => uint256) userRewardPerTokenPaidDebase;
     mapping(address => uint256) userRewardPerTokenPaidMPH;
@@ -217,46 +210,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
-    /**
-     * @notice Function to enable user lp limit
-     */
-    function setEnableUserLpLimit(bool enableUserLpLimit_) external onlyOwner {
-        enableUserLpLimit = enableUserLpLimit_;
-        emit LogSetEnableUserLpLimit(enableUserLpLimit);
-    }
-
-    /**
-     * @notice Function to set user lp limit
-     */
-    function setUserLpLimit(uint256 userLpLimit_) external onlyOwner {
-        require(
-            userLpLimit_ <= poolLpLimit,
-            "User lp limit cant be more than pool limit"
-        );
-        userLpLimit = userLpLimit_;
-        emit LogSetUserLpLimit(userLpLimit);
-    }
-
-    /**
-     * @notice Function to enable pool lp limit
-     */
-    function setEnablePoolLpLimit(bool enablePoolLpLimit_) external onlyOwner {
-        enablePoolLpLimit = enablePoolLpLimit_;
-        emit LogSetEnablePoolLpLimit(enablePoolLpLimit);
-    }
-
-    /**
-     * @notice Function to set pool lp limit
-     */
-    function setPoolLpLimit(uint256 poolLpLimit_) external onlyOwner {
-        require(
-            poolLpLimit_ >= userLpLimit,
-            "Pool lp limit cant be less than user lp limit"
-        );
-        poolLpLimit = poolLpLimit_;
-        emit LogSetPoolLpLimit(poolLpLimit);
-    }
-
     function setMPH88Reward(uint256 mph88Reward_) external onlyOwner {
         mph88Reward = mph88Reward_;
     }
@@ -275,10 +228,7 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         uint256 blockDuration_,
         uint256 multiSigRewardPercentage_,
         address multiSigRewardAddress_,
-        bool enableUserLpLimit_,
-        uint256 userLpLimit_,
-        bool enablePoolLpLimit_,
-        uint256 poolLpLimit_
+        uint256 contractionRewardRatePercentage_
     ) public {
         setStakeToken(pairToken_);
         debase = debase_;
@@ -292,10 +242,7 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
 
         multiSigRewardPercentage = multiSigRewardPercentage_;
         multiSigRewardAddress = multiSigRewardAddress_;
-        userLpLimit = userLpLimit_;
-        enableUserLpLimit = enableUserLpLimit_;
-        poolLpLimit = poolLpLimit_;
-        enablePoolLpLimit = enablePoolLpLimit_;
+        contractionRewardRatePercentage = contractionRewardRatePercentage_;
     }
 
     function checkStabilizerAndGetReward(
@@ -318,15 +265,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         }
 
         if (block.number >= periodFinish) {
-            if (rewardShare != 0) {
-                (uint256 debaseRewardPerToken, , ) = rewardPerToken();
-                uint256 balanceLost = rewardShare.sub(debaseRewardPerToken);
-                debase.safeTransfer(
-                    policy,
-                    debase.totalSupply().mul(balanceLost).div(10**18)
-                );
-                rewardShare = 0;
-            }
             uint256 rewardAmount =
                 debasePolicyBalance.mul(rewardPercentage).div(10**18);
 
@@ -469,22 +407,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             "Caller must not be a contract"
         );
         require(amount > 0, "Cannot stake 0");
-
-        if (enablePoolLpLimit) {
-            uint256 lpBalance = totalSupply();
-            require(
-                amount.add(lpBalance) <= poolLpLimit,
-                "Cant stake pool lp limit reached"
-            );
-        }
-        if (enableUserLpLimit) {
-            uint256 userLpBalance = balanceOf(msg.sender);
-            require(
-                userLpBalance.add(amount) <= userLpLimit,
-                "Cant stake more than lp limit"
-            );
-        }
-
         super.stake(amount);
         emit LogStaked(msg.sender, amount);
     }
@@ -517,8 +439,6 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
 
             debase.safeTransfer(msg.sender, rewardToClaim);
             rewardDistributedDebase = rewardDistributedDebase.add(earnedDebase);
-
-            emit LogRewardPaid(msg.sender, rewardToClaim);
         }
 
         if (earnedMPH > 0) {
@@ -552,7 +472,7 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
             "Rewards: rewards too large, would lock"
         );
 
-        rewardShare = amount.mul(10**18).div(debase.totalSupply());
+        uint256 rewardShare = amount.mul(10**18).div(debase.totalSupply());
 
         rewardRateDebaseExpansion = rewardShare.div(blockDuration);
         rewardRateDebaseContraction = rewardRateDebaseExpansion
@@ -577,6 +497,7 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         emit LogStartNewDistribtionCycle(
             amount,
             rewardRateDebaseExpansion,
+            rewardRateDebaseContraction,
             periodFinish
         );
     }

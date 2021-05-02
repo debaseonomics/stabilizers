@@ -8,8 +8,5 @@ module.exports = [
 	'100',
 	'0',
 	'0x47be788bfc350edca196c6a20020e0a708dd9bee',
-	false,
-	'0',
-	false,
-	'0'
+	"500000000000000000"
 ];
