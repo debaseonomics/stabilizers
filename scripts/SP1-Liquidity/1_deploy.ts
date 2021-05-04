@@ -15,17 +15,17 @@ async function main() {
 			signer[0]
 		) as any) as RewarderFactory;
 
-		const debase = '0x0f2968f1dd68a31f5c45a17faf4a4acd6fc9e783';
-		const mph88 = '0x9f810f25a4e3101dea39f3fdd941f7e439941171';
-		const crv = '0x374b05aed6ffc294f98859c97a714d2ba16bd13c';
-		const pair = '0x6c1dea76a746f6295f33e5738e9015dd4267f533';
-		const policy = '0x47Be788Bfc350EDca196C6a20020e0A708dd9bee';
+		const debase = '0x9248c485b0B80f76DA451f167A8db30F33C70907';
+		const mph88 = '0x8888801af4d980682e47f1a9036e589479e835c5';
+		const crv = '0xD533a949740bb3306d119CC777fa900bA034cd52';
+		const pair = '0xa8e5533d1e22be2df5e9ad9f67dd22a4e7d5b371';
+		const policy = '0x989Edd2e87B1706AB25b2E8d9D9480DE3Cc383eD';
 		const mph88Reward = parseEther('1');
 		const crvReward = parseEther('1');
 		const rewardPercentage = parseUnits('1', 12);
 		const blockDuration = 10;
 		const multiSigReward = 0;
-		const treasury = '0x47Be788Bfc350EDca196C6a20020e0A708dd9bee';
+		const treasury = '0xbF402010972809A0756dCB536a455Ca9a0d6a9C1';
 		const contractionPercentage = parseEther('1');
 
 		const rewarder = await rewarderFactory.deploy(

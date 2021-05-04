@@ -210,11 +210,11 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         emit LogSetPoolEnabled(poolEnabled);
     }
 
-    function setMPH88Reward(uint256 mph88Reward_) external onlyOwner {
+    function setMPH88AndCRVReward(uint256 mph88Reward_, uint256 crvReward_)
+        external
+        onlyOwner
+    {
         mph88Reward = mph88Reward_;
-    }
-
-    function setCRVReward(uint256 crvReward_) external onlyOwner {
         crvReward = crvReward_;
     }
 
@@ -224,6 +224,8 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
         IERC20 crv_,
         address pairToken_,
         address policy_,
+        uint256 mph88Reward_,
+        uint256 crvReward_,
         uint256 rewardPercentage_,
         uint256 blockDuration_,
         uint256 multiSigRewardPercentage_,
@@ -239,6 +241,8 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
 
         blockDuration = blockDuration_;
         rewardPercentage = rewardPercentage_;
+        mph88Reward = mph88Reward_;
+        crvReward = crvReward_;
 
         multiSigRewardPercentage = multiSigRewardPercentage_;
         multiSigRewardAddress = multiSigRewardAddress_;
@@ -302,8 +306,8 @@ contract Rewarder is Ownable, LPTokenWrapper, ReentrancyGuard {
      */
     function emergencyWithdraw() external onlyOwner {
         debase.safeTransfer(policy, debase.balanceOf(address(this)));
-        mph88.safeTransfer(policy, mph88.balanceOf(address(this)));
-        crv.safeTransfer(policy, crv.balanceOf(address(this)));
+        mph88.safeTransfer(owner(), mph88.balanceOf(address(this)));
+        crv.safeTransfer(owner(), crv.balanceOf(address(this)));
         emit LogEmergencyWithdraw(block.number);
     }
 
